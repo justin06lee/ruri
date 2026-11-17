@@ -106,6 +106,11 @@ export class Terminals {
   private readonly shells = new Map<string, Shell>();
   /** Which tabs each channel shows, in order — live or not yet started. */
   private tabs = new Map<string, string[]>();
+  /** What a tab started by run() types into its shell once it is up. */
+  private readonly commands = new Map<string, string>();
+  /** Channels whose tabs were made by run(): there for the one command,
+   *  so not remembered past this run of ruri. */
+  private readonly passing = new Set<string>();
   private loaded = false;
 
   constructor(private readonly events: TerminalEvents) {}
@@ -130,7 +135,8 @@ export class Terminals {
 
   private save(): void {
     try {
-      writeJsonAtomic(tabsFile(), Object.fromEntries(this.tabs), 2);
+      const kept = [...this.tabs].filter(([channelId]) => !this.passing.has(channelId));
+      writeJsonAtomic(tabsFile(), Object.fromEntries(kept), 2);
     } catch (err) {
       warn("terminal", err, "save");
       // best-effort persistence
@@ -170,6 +176,23 @@ export class Terminals {
     this.tabs.set(channelId, next);
     this.save();
     return next;
+  }
+
+  /**
+   * A shell for one command: whatever this channel had goes, and its one
+   * tab types `command` into its shell once the shell is up — where the
+   * user sees it run, and can answer it. A command that ends `&& exit`
+   * takes the tab with it when it succeeds, and leaves its words on screen
+   * when it fails.
+   */
+  run(channelId: string, command: string): string[] {
+    this.load();
+    for (const termId of this.tabs.get(channelId) ?? []) this.kill(termId);
+    const termId = `${channelId}#run-${Date.now().toString(36)}`;
+    this.tabs.set(channelId, [termId]);
+    this.commands.set(termId, command);
+    this.passing.add(channelId);
+    return [termId];
   }
 
   /** Whether this tab already has a shell running. */
@@ -270,6 +293,12 @@ export class Terminals {
     // keystroke, not a command: zsh clears and redraws the prompt at the top
     // without a line of it appearing in the scrollback.
     if (pty) setTimeout(() => this.write(termId, "\x0c"), 700);
+    // after that, so the clear doesn't land on the command's own screen
+    const command = this.commands.get(termId);
+    if (command !== undefined) {
+      this.commands.delete(termId);
+      setTimeout(() => this.write(termId, `${command}\n`), pty ? 900 : 50);
+    }
     return true;
   }
 

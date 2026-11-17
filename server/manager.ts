@@ -26,6 +26,7 @@ export function homeProject(workspaceDir: string, settings: HomeSettings = {}): 
     ...(settings.model ? { model: settings.model } : {}),
     ...(settings.permissionMode ? { permissionMode: settings.permissionMode } : {}),
     ...(settings.effort ? { effort: settings.effort } : {}),
+    ...(settings.accounts ? { accounts: settings.accounts } : {}),
   };
 }
 

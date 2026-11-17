@@ -6,7 +6,6 @@
  */
 import { removeLibrarySkill } from "../library.js";
 import { liveComponentsChanged } from "./components.js";
-import { accountOf } from "../accounts.js";
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -333,15 +332,6 @@ export const projectHandlers = {
       ctx.store.update(msg.projectId, { hidden: project.hidden ? undefined : true });
       ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
     }
-  },
-  // which Claude sign-in the project runs on: a chat's id names its
-  // project. Nothing running is stopped — each chat's next process starts
-  // on the new account, and resumes its session there (accounts.ts)
-  set_account: (ctx, _ws, msg) => {
-    const project = ctx.store.get(msg.projectId) ?? ctx.store.findSession(msg.projectId)?.project;
-    if (!project || accountOf(project) === msg.account) return;
-    ctx.store.update(project.id, { account: msg.account === "work" ? undefined : msg.account });
-    ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
   },
   // live components for this project, over the setting: a chat's id names
   // its project. Every chat in it is told of mycelium, or not, from its

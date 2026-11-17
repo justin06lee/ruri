@@ -1,10 +1,9 @@
 import { execFile } from "node:child_process";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
-import { accountKeychainService, claudeHome, personalConfigDir } from "./accounts.js";
+import { accountKeychainService, claudeHome, codexHome, codexHomes, listAccounts } from "./accounts.js";
 import { configPath } from "./configDir.js";
-import { usageKey, type ClaudeAccount, type UsageLimits } from "../shared/protocol.js";
+import { DEFAULT_ACCOUNTS, usageKey, type UsageLimits } from "../shared/protocol.js";
 import { isMissing, warn } from "./log.js";
 
 /**
@@ -13,11 +12,11 @@ import { isMissing, warn } from "./log.js";
  * active session actually spends from.
  *
  * Claude's come from the same endpoint Claude Code's own /usage uses,
- * authenticated with the user's existing Claude Code sign-in — each of the
- * two accounts' own (server/accounts.ts): the work one under "claude", as
- * it always was, and the personal one beside it. Codex writes
- * its windows into every session rollout on disk, so its come from there —
- * no second sign-in, no network. Everything here is best-effort: an
+ * authenticated with the user's existing Claude Code sign-in — each
+ * account's own (server/accounts.ts): the work one under "claude", as it
+ * always was, and every other beside it (usageKey). Codex writes its
+ * windows into every session rollout on disk, so each Codex account's come
+ * from the rollouts under its own home — no second sign-in, no network. Everything here is best-effort: an
  * unreadable source just leaves that harness's gauges empty.
  */
 
@@ -34,7 +33,7 @@ function parseToken(raw: string): string | null {
 /** An account's Claude Code OAuth access token: keychain on macOS (the
  *  freshest copy — the CLI refreshes it there), under the item Claude Code
  *  names for that config dir; its .credentials.json as the fallback. */
-async function accessToken(account: ClaudeAccount): Promise<string | null> {
+async function accessToken(account: string): Promise<string | null> {
   if (process.platform === "darwin") {
     const service = accountKeychainService(account);
     const raw = await new Promise<string>((resolve) => {
@@ -42,7 +41,8 @@ async function accessToken(account: ClaudeAccount): Promise<string | null> {
         resolve(err ? "" : stdout),
       );
     });
-    const token = parseToken(raw);
+    // no item is no sign-in, not a broken one
+    const token = raw ? parseToken(raw) : null;
     if (token) return token;
   }
   try {
@@ -68,25 +68,28 @@ function epoch(iso: string | null | undefined): number | undefined {
  *  Each account is its own client to it, with its own back-off. */
 export const CLAUDE_BACKOFF_MS = 5 * 60_000;
 export const CLAUDE_EVERY_MS = 60_000;
-const claudeQuietUntil: Record<ClaudeAccount, number> = { work: 0, personal: 0 };
-const claudeAskedAt: Record<ClaudeAccount, number> = { work: 0, personal: 0 };
+const claudeQuietUntil = new Map<string, number>();
+const claudeAskedAt = new Map<string, number>();
 
 /** Forget the back-off (tests). */
 export function resetUsageBackoff(): void {
-  for (const account of ["work", "personal"] as const) {
-    claudeQuietUntil[account] = 0;
-    claudeAskedAt[account] = 0;
-  }
+  claudeQuietUntil.clear();
+  claudeAskedAt.clear();
 }
 
 /** Fetch an account's limit windows; null when unavailable — or not
  *  asked for now, while the endpoint wants to be left alone. */
-async function fetchUsageLimits(account: ClaudeAccount): Promise<UsageLimits | null> {
+async function fetchUsageLimits(account: string): Promise<UsageLimits | null> {
   const now = Date.now();
-  if (now < claudeQuietUntil[account] || now - claudeAskedAt[account] < CLAUDE_EVERY_MS) return null;
+  if (
+    now < (claudeQuietUntil.get(account) ?? 0) ||
+    now - (claudeAskedAt.get(account) ?? 0) < CLAUDE_EVERY_MS
+  ) {
+    return null;
+  }
   const token = await accessToken(account);
   if (!token) return null;
-  claudeAskedAt[account] = now;
+  claudeAskedAt.set(account, now);
   try {
     const res = await fetch("https://api.anthropic.com/api/oauth/usage", {
       headers: {
@@ -97,8 +100,10 @@ async function fetchUsageLimits(account: ClaudeAccount): Promise<UsageLimits | n
     });
     if (res.status === 429) {
       const after = Number(res.headers.get("retry-after"));
-      claudeQuietUntil[account] =
-        Date.now() + Math.max(CLAUDE_BACKOFF_MS, Number.isFinite(after) ? after * 1000 : 0);
+      claudeQuietUntil.set(
+        account,
+        Date.now() + Math.max(CLAUDE_BACKOFF_MS, Number.isFinite(after) ? after * 1000 : 0),
+      );
       return null;
     }
     if (!res.ok) return null;
@@ -153,11 +158,6 @@ async function fetchUsageLimits(account: ClaudeAccount): Promise<UsageLimits | n
 /** An epoch-seconds reset stamp as epoch ms — Codex's unit, not Claude's. */
 function seconds(at: number | undefined): number | undefined {
   return typeof at === "number" && at > 0 ? at * 1000 : undefined;
-}
-
-/** Where Codex keeps its rollouts — shared with recent.ts. */
-export function codexHome(): string {
-  return process.env["CODEX_HOME"] ?? path.join(os.homedir(), ".codex");
 }
 
 /** The tail of a file, which is where a rollout's latest counts live. */
@@ -223,17 +223,17 @@ function tokenCounts(file: string): TokenCount[] {
 
 /**
  * Codex's limit windows and last context reading. `session` names a specific
- * rollout (a channel's own session id, which is in the filename); without it
- * the recent rollouts answer, newest first, which is what the account-wide
- * windows want.
+ * rollout (a channel's own session id, which is in the filename, under
+ * whichever account's home it is); without it the recent rollouts under
+ * `home` answer, newest first, which is what an account's windows want.
  *
  * Entries are walked back rather than read off the end: a turn that hits a
  * different limit bucket writes null percentages, and the last real reading
  * is the one worth showing — an empty dragon should mean "no source", not
  * "the newest line happened to be blank".
  */
-export function readCodexCounts(session?: string): CodexCounts | null {
-  const files = session ? [rolloutFor(session)] : recentRollouts(ROLLOUT_SCAN);
+export function readCodexCounts(session?: string, home: string = codexHome()): CodexCounts | null {
+  const files = session ? [rolloutFor(session)] : recentRollouts(home, ROLLOUT_SCAN);
   const limits: UsageLimits = {};
   const resets: NonNullable<UsageLimits["resets"]> = {};
   let tokens: number | undefined;
@@ -279,8 +279,8 @@ export function readCodexCounts(session?: string): CodexCounts | null {
 const ROLLOUT_SCAN = 24;
 
 /** The newest day directories under sessions/YYYY/MM/DD, newest first. */
-function recentDays(limit: number): string[] {
-  const root = path.join(codexHome(), "sessions");
+function recentDays(home: string, limit: number): string[] {
+  const root = path.join(home, "sessions");
   let dirs = [root];
   for (let depth = 0; depth < 3; depth++) {
     const next: string[] = [];
@@ -312,9 +312,9 @@ function childrenDesc(dir: string, filter: (name: string) => boolean): string[] 
 }
 
 /** The most recently written rollouts, newest first, across recent days. */
-function recentRollouts(count: number): string[] {
+function recentRollouts(home: string, count: number): string[] {
   const files: string[] = [];
-  for (const dir of recentDays(3)) {
+  for (const dir of recentDays(home, 3)) {
     for (const name of childrenDesc(dir, (n) => n.endsWith(".jsonl"))) {
       files.push(path.join(dir, name));
       if (files.length >= count) return files;
@@ -323,10 +323,10 @@ function recentRollouts(count: number): string[] {
   return files;
 }
 
-/** The rollout file for one session id — its name carries the uuid. */
+/** The rollout file for one session id — its name carries the uuid —
+ *  under whichever Codex account's home has it. */
 function rolloutFor(session: string): string | undefined {
-  const root = path.join(codexHome(), "sessions");
-  const stack = [root];
+  const stack = codexHomes().map((home) => path.join(home, "sessions"));
   while (stack.length > 0) {
     const dir = stack.pop()!;
     let entries: fs.Dirent[];
@@ -345,21 +345,32 @@ function rolloutFor(session: string): string | undefined {
   return undefined;
 }
 
-/** Every harness's windows, keyed by provider id, for the usage gauges. */
+/** Every account's windows, keyed by usageKey, for the usage gauges. */
 export async function fetchAllUsageLimits(): Promise<Record<string, UsageLimits>> {
   const limits: Record<string, UsageLimits> = {};
   const at = Date.now();
-  // the personal account only once there is one: its config dir is made
-  // by its first sign-in, and a Mac with no such login is asked nothing
-  const [work, personal] = await Promise.all([
-    fetchUsageLimits("work"),
-    fs.existsSync(personalConfigDir()) ? fetchUsageLimits("personal") : null,
-  ]);
-  if (work) limits[usageKey("claude", "work")] = { ...work, at };
-  if (personal) limits[usageKey("claude", "personal")] = { ...personal, at };
-  const codex = readCodexCounts();
-  if (codex && (codex.limits.fiveHour !== undefined || codex.limits.weekly !== undefined)) {
-    limits["codex"] = { ...codex.limits, at };
+  const accounts = listAccounts();
+  // an account other than work only once its folder is there: the folder
+  // is made by its first sign-in (or by adding it), and one with no
+  // sign-in in it has no token, so nothing is asked for it either
+  const claude = accounts.filter(
+    (a) => a.provider === "claude" && (a.id === DEFAULT_ACCOUNTS.claude || fs.existsSync(a.dir)),
+  );
+  const read = await Promise.all(claude.map((a) => fetchUsageLimits(a.id)));
+  claude.forEach((a, i) => {
+    const reading = read[i];
+    if (reading) limits[usageKey("claude", a.id)] = { ...reading, at };
+  });
+  // the same home twice (an account added over the default's folder)
+  // is read once
+  const seen = new Set<string>();
+  for (const a of accounts.filter((x) => x.provider === "codex")) {
+    if (seen.has(a.dir)) continue;
+    seen.add(a.dir);
+    const codex = readCodexCounts(undefined, a.dir);
+    if (codex && (codex.limits.fiveHour !== undefined || codex.limits.weekly !== undefined)) {
+      limits[usageKey("codex", a.id)] = { ...codex.limits, at };
+    }
   }
   return limits;
 }

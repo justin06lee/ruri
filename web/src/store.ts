@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import {
+  accountPick,
   DEFAULT_EFFORT,
   HARNESS_DEFAULT_MODEL,
   HOME_ID,
@@ -62,8 +63,9 @@ import {
   type TeamTask,
   type UsageLimits,
   type VaultState,
-  type ClaudeAccount,
+  type AccountInfo,
 } from "../../shared/protocol";
+import { projectOfChannel, withPick } from "./lib/accounts";
 import {
   addFolder as folderAdded,
   moveInLayout,
@@ -529,6 +531,8 @@ interface RuriState {
   workspaceDir: string;
   /** The Home agent's model/permission settings. */
   home: HomeSettings;
+  /** Every account a harness can run on, and who each is signed in as. */
+  accounts: AccountInfo[];
   /** Starred model ids — the composer picker shows only these. */
   starredModels: string[];
   smallModel: string;
@@ -734,6 +738,7 @@ export const useRuri = create<RuriState>((set) => ({
   draftBumps: {},
   workspaceDir: "",
   home: {},
+  accounts: [],
   starredModels: [],
   smallModel: "",
   memoryModel: "",
@@ -1230,17 +1235,35 @@ export function renameProject(projectId: string, name: string): void {
   );
 }
 
-/** Put a project on one of the Claude accounts. Its running sessions keep
- *  theirs; each chat's next process starts on this one (server/accounts.ts). */
-export function setProjectAccount(projectId: string, account: ClaudeAccount): void {
+/** Run a chat's project (or Home) on this account, for the harness the
+ *  account is for. Its running sessions keep theirs; each chat's next
+ *  process starts on this one (server/accounts.ts). */
+export function setProjectAccount(channelId: string, account: AccountInfo): void {
+  const message: ClientMessage = { type: "set_account", projectId: channelId, account: account.id };
+  if (channelId === HOME_ID) {
+    if (!send(message)) {
+      showError("Not connected — that did not go through; try again once ruri is back.");
+      return;
+    }
+    useRuri.setState((s) => {
+      const { accounts: picks, ...rest } = s.home;
+      const next = withPick(picks, account);
+      return { home: next ? { ...rest, accounts: next } : rest };
+    });
+    return;
+  }
+  const projectId = projectOfChannel(useRuri.getState().projects, channelId)?.id ?? channelId;
   changeProjects(
-    { type: "set_account", projectId, account },
+    message,
     (projects) =>
       onProject(projects, projectId, (p) => {
-        const { account: _was, ...rest } = p;
-        return account === "work" ? rest : { ...rest, account };
+        const { account: legacy, accounts: picks, ...rest } = p;
+        // the Claude pick from before there were others moves into accounts
+        const base = legacy && !picks?.claude ? { ...picks, claude: legacy } : picks;
+        const next = withPick(base, account);
+        return next ? { ...rest, accounts: next } : rest;
       }),
-    (projects) => accountOf(projects.find((p) => p.id === projectId)) === account,
+    (projects) => accountPick(projects.find((p) => p.id === projectId), account.provider) === account.id,
   );
 }
 
@@ -1283,11 +1306,6 @@ export function changeFolder(folderId: string, patch: { name?: string; collapsed
 /** Take a sidebar folder away; its projects stay where it stood. */
 export function dropFolder(folderId: string): void {
   changeSidebar({ type: "folder_remove", folderId }, (layout) => folderRemoved(layout, folderId));
-}
-
-/** A project's Claude account: work unless it says personal. */
-export function accountOf(project: Pick<Project, "account"> | undefined): ClaudeAccount {
-  return project?.account === "personal" ? "personal" : "work";
 }
 
 /** Star or unstar a project — or tuck it away or bring it back. The server
@@ -1961,6 +1979,7 @@ function apply(msg: ServerMessage): void {
         bridges: msg.bridges,
         workspaceDir: msg.workspaceDir,
         home: msg.home,
+        accounts: msg.accounts ?? [],
         starredModels: msg.starredModels,
         smallModel: msg.smallModel,
         memoryModel: msg.memoryModel,
@@ -2272,6 +2291,10 @@ function apply(msg: ServerMessage): void {
     }
     case "home_settings": {
       setState({ home: msg.home });
+      break;
+    }
+    case "accounts": {
+      setState({ accounts: msg.accounts });
       break;
     }
     case "prefs": {

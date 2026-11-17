@@ -3,7 +3,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ServerContext } from "../context.js";
+import { addAccount } from "../accounts.js";
 import { ProjectStore } from "../projects.js";
+import { accountHandlers } from "./accounts.js";
 import { createManagerHost, projectHandlers } from "./projects.js";
 
 let root: string;
@@ -122,31 +124,53 @@ describe("midna watching a chat", () => {
   });
 });
 
-describe("a project's Claude account", () => {
+describe("a project's accounts", () => {
   test("set_account puts the project on it — by its id or a chat's — and it outlives a restart", () => {
     host.openProject({ path: path.join(real, "ruri") });
     const project = store.list()[0]!;
     const chatId = project.sessions[0]!.id;
     const broadcasts: unknown[] = [];
+    const told: string[] = [];
     const ctx = {
       store,
       clients: { broadcast: (m: unknown) => broadcasts.push(m) },
     } as unknown as ServerContext;
-    const set = (id: string, account: "work" | "personal") =>
-      projectHandlers.set_account(ctx, {} as never, { type: "set_account", projectId: id, account });
+    const ws = { send: (m: string) => told.push(m) } as never;
+    const set = (id: string, account: string) =>
+      accountHandlers.set_account(ctx, ws, { type: "set_account", projectId: id, account });
     // unset is work, so asking for work changes nothing
     set(project.id, "work");
     expect(broadcasts).toHaveLength(0);
     set(chatId, "personal");
-    expect(store.get(project.id)?.account).toBe("personal");
-    expect(new ProjectStore().get(project.id)?.account).toBe("personal");
+    expect(store.get(project.id)?.accounts).toEqual({ claude: "personal" });
+    expect(new ProjectStore().get(project.id)?.accounts).toEqual({ claude: "personal" });
     expect(broadcasts).toEqual([{ type: "projects", projects: store.list() }]);
     // back to work is back to unset
     set(project.id, "work");
-    expect(store.get(project.id)).not.toHaveProperty("account");
-    expect(new ProjectStore().get(project.id)).not.toHaveProperty("account");
+    expect(store.get(project.id)).not.toHaveProperty("accounts");
+    expect(new ProjectStore().get(project.id)).not.toHaveProperty("accounts");
+    // an account that isn't one is said so, and changes nothing
     set("nope", "personal");
+    set(project.id, "nobody");
     expect(broadcasts).toHaveLength(2);
+    expect(told).toHaveLength(2);
+  });
+
+  test("the Claude pick from before there were others is kept when Codex gets one", () => {
+    host.openProject({ path: path.join(real, "ruri") });
+    const project = store.list()[0]!;
+    store.update(project.id, { account: "personal" });
+    const ctx = { store, clients: { broadcast: () => {} } } as unknown as ServerContext;
+    // the built-in Codex account is the default, so name one of the user's
+    const side = addAccount("codex", "Side");
+    accountHandlers.set_account(ctx, {} as never, {
+      type: "set_account",
+      projectId: project.id,
+      account: side.id,
+    });
+    const saved = new ProjectStore().get(project.id)!;
+    expect(saved.accounts).toEqual({ claude: "personal", codex: side.id });
+    expect(saved).not.toHaveProperty("account");
   });
 });
 

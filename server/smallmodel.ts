@@ -3,7 +3,6 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type {
-  ClaudeAccount,
   ConceptPlace,
   LayerSheet,
   StackLayer,
@@ -33,8 +32,8 @@ import { describeJob, placeholderJob, SECTION_MAX, SHEET_WORDS, withinBudget } f
 export type Completer = (request: MessagesRequest, signal: AbortSignal) => Promise<string>;
 
 /** One client per Claude account: a Claude model asked for a project on
- *  the personal account runs under its config dir (server/accounts.ts). */
-const clients = new Map<ClaudeAccount, Yagami>();
+ *  another account runs under its config dir (server/accounts.ts). */
+const clients = new Map<string, Yagami>();
 let completer: Completer | null = null;
 let configured: string | undefined;
 let memoryConfigured: string | undefined;
@@ -84,21 +83,21 @@ export function memoryModel(): string {
  * nobody wrapped runs on work, the default. Only Claude models care; the
  * other harnesses have one sign-in each.
  */
-const accountScope = new AsyncLocalStorage<ClaudeAccount>();
+const accountScope = new AsyncLocalStorage<string>();
 
 /** Run `work` — and every small-model call it makes — on this account. */
-export function onAccount<T>(account: ClaudeAccount, work: () => T): T {
+export function onAccount<T>(account: string, work: () => T): T {
   return accountScope.run(account, work);
 }
 
 /** `fn`, made to run on this account whoever calls it later — for an ask
  *  handed to code that has no project to say which. */
-export function onAccountOf<A extends unknown[], R>(account: ClaudeAccount, fn: (...args: A) => R) {
+export function onAccountOf<A extends unknown[], R>(account: string, fn: (...args: A) => R) {
   return (...args: A): R => onAccount(account, () => fn(...args));
 }
 
 /** The account the call being made spends from. */
-export function smallModelAccount(): ClaudeAccount {
+export function smallModelAccount(): string {
   return accountScope.getStore() ?? DEFAULT_CLAUDE_ACCOUNT;
 }
 
@@ -270,7 +269,7 @@ export function quietCodex(): string | undefined {
   }
 }
 
-function makeClient(account: ClaudeAccount): Yagami {
+function makeClient(account: string): Yagami {
   const codex = quietCodex();
   const claudeDir = claudeConfigDir(account);
   return new Yagami({

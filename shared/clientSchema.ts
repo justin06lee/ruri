@@ -208,7 +208,21 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
   z.object({ type: z.literal("set_model"), ...projectId, model: label }),
   z.object({ type: z.literal("set_permission_mode"), ...projectId, mode: permissionMode }),
   z.object({ type: z.literal("set_effort"), ...projectId, effort: z.string().max(32) }),
-  z.object({ type: z.literal("set_account"), ...projectId, account: z.enum(["work", "personal"]) }),
+  z.object({ type: z.literal("set_account"), ...projectId, account: z.string().min(1).max(64) }),
+  z.object({
+    type: z.literal("account_add"),
+    provider: z.enum(["claude", "codex"]),
+    name: z.string().trim().min(1).max(64),
+  }),
+  z.object({
+    type: z.literal("account_rename"),
+    id: z.string().min(1).max(64),
+    name: z.string().trim().min(1).max(64),
+  }),
+  z.object({ type: z.literal("account_remove"), id: z.string().min(1).max(64) }),
+  z.object({ type: z.literal("account_sign_in"), id: z.string().min(1).max(64) }),
+  z.object({ type: z.literal("account_sign_out"), id: z.string().min(1).max(64) }),
+  z.object({ type: z.literal("account_refresh") }),
   z.object({ type: z.literal("set_mycelium"), ...projectId, mycelium: z.enum(["on", "off", "default"]) }),
   z.object({
     type: z.literal("idea_add"),

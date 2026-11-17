@@ -1,39 +1,105 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { DEFAULT_CLAUDE_ACCOUNT, type ClaudeAccount, type Project } from "../shared/protocol.js";
+import {
+  accountPick,
+  DEFAULT_ACCOUNTS,
+  DEFAULT_CLAUDE_ACCOUNT,
+  HOME_ID,
+  isAccountProvider,
+  type AccountProvider,
+  type HomeSettings,
+  type Project,
+} from "../shared/protocol.js";
+import { writeJsonAtomic } from "./atomic.js";
+import { configPath } from "./configDir.js";
 import { isMissing, warn } from "./log.js";
 
 /**
- * The two Claude sign-ins, and what a session on each runs with.
+ * The accounts a harness can run on, and what a session on each runs with.
  *
  * Claude Code keeps everything of an account — its sign-in, its settings,
- * its transcripts — under one config dir: ~/.claude by default, or
- * wherever CLAUDE_CONFIG_DIR points. "work" is the default (whatever
- * CLAUDE_CONFIG_DIR ruri itself was started with, which is normally none —
- * so it is left alone rather than unset), and "personal" is
- * ~/.claude-personal, or RURI_PERSONAL_CLAUDE_DIR. A project picks one
- * (Project.account); every Claude process ruri starts for it gets the
- * matching CLAUDE_CONFIG_DIR, read at each spawn — so a change reaches the
- * next process and leaves a running one alone.
+ * its transcripts — under one config dir: ~/.claude by default, or wherever
+ * CLAUDE_CONFIG_DIR points. Codex does the same under CODEX_HOME (~/.codex).
+ * So an account is a folder: "work" is Claude's default (whatever
+ * CLAUDE_CONFIG_DIR ruri itself was started with, normally none — left
+ * alone rather than unset), "personal" is ~/.claude-personal (or
+ * RURI_PERSONAL_CLAUDE_DIR), "codex" is Codex's default, and every account
+ * the user adds gets a folder of its own beside them (~/.claude-<id>,
+ * ~/.codex-<id>), listed with the name they gave it in accounts.json.
+ *
+ * A project picks one per harness (Project.accounts); every process ruri
+ * starts for it gets the matching folder, read at each spawn — so a change
+ * reaches the next process and leaves a running one alone.
  */
 
-/** A project's account: personal only when it says so. */
-export function accountOf(project?: Pick<Project, "account"> | null): ClaudeAccount {
-  return project?.account === "personal" ? "personal" : DEFAULT_CLAUDE_ACCOUNT;
+export interface Account {
+  id: string;
+  name: string;
+  provider: AccountProvider;
+  /** The folder its sign-in lives in. */
+  dir: string;
+  /** What its harness is started with (CLAUDE_CONFIG_DIR, CODEX_HOME);
+   *  unset for the defaults, which leave ruri's own as it is. */
+  configDir?: string;
+  builtIn: boolean;
 }
 
-/** The account a project runs on — found by its id, or by any of its
- *  chats'. Home, and anything not found, runs on work. */
-export function accountFor(
-  store: {
-    get(id: string): Project | undefined;
-    findSession(id: string): { project: Project } | undefined;
-  },
-  id: string,
-): ClaudeAccount {
-  return accountOf(store.get(id) ?? store.findSession(id)?.project);
+/** An account as accounts.json keeps it: a built-in's only its name. */
+interface Stored {
+  id: string;
+  name: string;
+  provider: AccountProvider;
+  dir?: string;
+}
+
+const BUILT_IN: ReadonlyArray<Omit<Stored, "dir">> = [
+  { id: "work", name: "Work", provider: "claude" },
+  { id: "personal", name: "Personal", provider: "claude" },
+  { id: "codex", name: "Codex", provider: "codex" },
+];
+
+function accountsFile(): string {
+  return configPath("accounts.json");
+}
+
+/** The file as last read or written — kept per config folder, so a test
+ *  that points ruri at a folder of its own reads that folder's. */
+let cache: { file: string; stored: Stored[] } | undefined;
+
+function stored(): Stored[] {
+  const file = accountsFile();
+  if (cache?.file === file) return cache.stored;
+  const list: Stored[] = [];
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, "utf8")) as { accounts?: unknown };
+    for (const entry of Array.isArray(raw.accounts) ? (raw.accounts as Array<Partial<Stored>>) : []) {
+      if (!entry || typeof entry.id !== "string" || typeof entry.name !== "string") continue;
+      if (!isAccountProvider(entry.provider) || list.some((x) => x.id === entry.id)) continue;
+      list.push({
+        id: entry.id,
+        name: entry.name,
+        provider: entry.provider,
+        ...(typeof entry.dir === "string" && entry.dir ? { dir: entry.dir } : {}),
+      });
+    }
+  } catch (err) {
+    if (!isMissing(err)) warn("accounts", err, "read accounts.json");
+    // none added yet: the built-in three are all there is
+  }
+  cache = { file, stored: list };
+  return list;
+}
+
+function save(list: Stored[]): void {
+  cache = { file: accountsFile(), stored: list };
+  writeJsonAtomic(accountsFile(), { accounts: list }, 2);
+}
+
+/** Forget what was read, so the next call reads the file again (tests). */
+export function reloadAccounts(): void {
+  cache = undefined;
 }
 
 /** The personal account's config dir. Read on every call, like
@@ -42,16 +108,151 @@ export function personalConfigDir(): string {
   return process.env["RURI_PERSONAL_CLAUDE_DIR"] || path.join(os.homedir(), ".claude-personal");
 }
 
-/** The CLAUDE_CONFIG_DIR a session on this account is started with;
- *  undefined is "as ruri has it". */
-export function claudeConfigDir(account: ClaudeAccount): string | undefined {
-  return account === "personal" ? personalConfigDir() : undefined;
+/** Where the folders of added accounts go: the home folder, or
+ *  RURI_ACCOUNT_HOMES (tests). */
+function accountHomesDir(): string {
+  return process.env["RURI_ACCOUNT_HOMES"] || os.homedir();
 }
 
-/** What a Claude process on this account adds to its environment. */
-export function accountEnv(account: ClaudeAccount): Record<string, string> {
-  const dir = claudeConfigDir(account);
-  return dir ? { CLAUDE_CONFIG_DIR: dir } : {};
+function builtInConfigDir(id: string): string | undefined {
+  return id === "personal" ? personalConfigDir() : undefined;
+}
+
+function resolve(entry: Stored, builtIn: boolean): Account {
+  const configDir = builtIn ? builtInConfigDir(entry.id) : entry.dir;
+  const dir =
+    entry.provider === "claude"
+      ? claudeHomeFor(configDir ?? process.env["CLAUDE_CONFIG_DIR"])
+      : (configDir ?? defaultCodexHome());
+  return {
+    id: entry.id,
+    name: entry.name,
+    provider: entry.provider,
+    dir,
+    ...(configDir ? { configDir } : {}),
+    builtIn,
+  };
+}
+
+/** Every account, Claude's first then Codex's, built-ins ahead of the
+ *  user's own in the order they were added. */
+export function listAccounts(): Account[] {
+  const own = stored();
+  const all: Account[] = [];
+  for (const provider of ["claude", "codex"] as const) {
+    for (const base of BUILT_IN.filter((b) => b.provider === provider)) {
+      const renamed = own.find((x) => x.id === base.id)?.name;
+      all.push(resolve({ ...base, ...(renamed ? { name: renamed } : {}) }, true));
+    }
+    for (const entry of own) {
+      if (entry.provider !== provider || BUILT_IN.some((b) => b.id === entry.id) || !entry.dir) continue;
+      all.push(resolve(entry, false));
+    }
+  }
+  return all;
+}
+
+export function findAccount(id: string | undefined): Account | undefined {
+  return id ? listAccounts().find((a) => a.id === id) : undefined;
+}
+
+/**
+ * The account a project (or Home's settings) runs a harness on: its pick,
+ * while that is still an account for that harness — one since removed, or
+ * a pick for the other harness, is the default.
+ */
+export function accountOf(
+  project: Pick<Project, "account" | "accounts"> | HomeSettings | null | undefined,
+  provider: AccountProvider = "claude",
+): string {
+  const pick = accountPick(project, provider);
+  return findAccount(pick)?.provider === provider ? pick : DEFAULT_ACCOUNTS[provider];
+}
+
+/** The account a project runs on — found by its id, or by any of its
+ *  chats'. Home runs on its own pick; anything not found on the default. */
+export function accountFor(
+  store: {
+    get(id: string): Project | undefined;
+    findSession(id: string): { project: Project } | undefined;
+    homeSettings?(): HomeSettings;
+  },
+  id: string,
+  provider: AccountProvider = "claude",
+): string {
+  if (id === HOME_ID) return accountOf(store.homeSettings?.(), provider);
+  return accountOf(store.get(id) ?? store.findSession(id)?.project, provider);
+}
+
+/** The folder name an added account gets: its name, plain. */
+function slug(name: string): string {
+  const plain = name
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 24);
+  // a name with no Latin in it (한국어, say) still gets a folder
+  return plain || `account-${randomBytes(2).toString("hex")}`;
+}
+
+/**
+ * A new account for a harness, under the name the user gave it: an id from
+ * that name, unlike any other, and a folder of its own beside the harness's
+ * default — ~/.claude-<id>, ~/.codex-<id>. A folder already there (one the
+ * user signed in to by hand) is taken as it is.
+ */
+export function addAccount(provider: AccountProvider, name: string): Account {
+  const taken = new Set(listAccounts().map((a) => a.id));
+  const base = slug(name);
+  let id = base;
+  for (let n = 2; taken.has(id); n++) id = `${base}-${n}`;
+  const dir = path.join(accountHomesDir(), `.${provider}-${id}`);
+  // Codex refuses a CODEX_HOME that isn't there; Claude makes its own,
+  // but one made now is one the page can show as this account's
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  save([...stored(), { id, name: name.trim(), provider, dir }]);
+  return findAccount(id)!;
+}
+
+export function renameAccount(id: string, name: string): boolean {
+  const account = findAccount(id);
+  const trimmed = name.trim();
+  if (!account || !trimmed) return false;
+  const own = stored();
+  save(
+    own.some((x) => x.id === id)
+      ? own.map((x) => (x.id === id ? { ...x, name: trimmed } : x))
+      : [...own, { id, name: trimmed, provider: account.provider }],
+  );
+  return true;
+}
+
+/** Forget one of the user's own accounts. Its folder — sign-in and
+ *  transcripts — stays on disk; the built-in three are never removed. */
+export function removeAccount(id: string): Account | undefined {
+  const account = findAccount(id);
+  if (!account || account.builtIn) return undefined;
+  save(stored().filter((x) => x.id !== id));
+  return account;
+}
+
+/** The CLAUDE_CONFIG_DIR a session on this account is started with;
+ *  undefined is "as ruri has it". */
+export function claudeConfigDir(account: string): string | undefined {
+  const found = findAccount(account);
+  return found?.provider === "claude" ? found.configDir : undefined;
+}
+
+/** What a process on this account adds to its environment: CLAUDE_CONFIG_DIR
+ *  or CODEX_HOME, or nothing for a harness's default. */
+export function accountEnv(account: string): Record<string, string> {
+  const found = findAccount(account);
+  if (!found?.configDir) return {};
+  return found.provider === "claude"
+    ? { CLAUDE_CONFIG_DIR: found.configDir }
+    : { CODEX_HOME: found.configDir };
 }
 
 /** The folder a CLAUDE_CONFIG_DIR value means, exactly as the CLI works it
@@ -61,16 +262,37 @@ export function claudeHomeFor(configDir: string | undefined): string {
   return (configDir?.trim() || path.join(os.homedir(), ".claude")).normalize("NFC");
 }
 
-/** Where an account's sign-in and transcripts live. */
-export function claudeHome(account: ClaudeAccount): string {
+/** Where a Claude account's sign-in and transcripts live. */
+export function claudeHome(account: string): string {
   return claudeHomeFor(claudeConfigDir(account) ?? process.env["CLAUDE_CONFIG_DIR"]);
 }
 
-/** Both accounts' homes, the given one first — one, when they are the same
- *  folder (ruri started with CLAUDE_CONFIG_DIR at the personal one). */
-export function claudeHomes(first: ClaudeAccount = DEFAULT_CLAUDE_ACCOUNT): string[] {
-  const other: ClaudeAccount = first === "personal" ? "work" : "personal";
-  return [...new Set([claudeHome(first), claudeHome(other)])];
+/** Every Claude account's home, the given one first — each once, however
+ *  many accounts share a folder. */
+export function claudeHomes(first: string = DEFAULT_CLAUDE_ACCOUNT): string[] {
+  const others = listAccounts()
+    .filter((a) => a.provider === "claude")
+    .map((a) => claudeHome(a.id));
+  return [...new Set([claudeHome(first), ...others])];
+}
+
+/** Codex's own default home: CODEX_HOME as ruri has it, else ~/.codex. */
+function defaultCodexHome(): string {
+  return process.env["CODEX_HOME"] || path.join(os.homedir(), ".codex");
+}
+
+/** Where a Codex account keeps its sign-in and rollouts. */
+export function codexHome(account: string = DEFAULT_ACCOUNTS.codex): string {
+  const found = findAccount(account);
+  return (found?.provider === "codex" ? found.configDir : undefined) ?? defaultCodexHome();
+}
+
+/** Every Codex account's home, the given one first, each once. */
+export function codexHomes(first: string = DEFAULT_ACCOUNTS.codex): string[] {
+  const others = listAccounts()
+    .filter((a) => a.provider === "codex")
+    .map((a) => codexHome(a.id));
+  return [...new Set([codexHome(first), ...others])];
 }
 
 /**
@@ -86,9 +308,46 @@ export function keychainService(configDir: string | undefined): string {
   return `Claude Code-credentials-${hash}`;
 }
 
-/** The keychain item for one of the two accounts. */
-export function accountKeychainService(account: ClaudeAccount): string {
+/** The keychain item for one Claude account. */
+export function accountKeychainService(account: string): string {
   return keychainService(claudeConfigDir(account) ?? process.env["CLAUDE_CONFIG_DIR"]);
+}
+
+/**
+ * What an account shares with its harness's default one: the user's own
+ * instructions, settings, skills and commands. A sign-in is the account's
+ * own; how the user likes to work is not, and an account that started
+ * without them would quietly be a different agent. Each is linked, not
+ * copied, so a change to one is a change to all — and anything the folder
+ * already has of its own is left alone.
+ */
+const SHARED: Record<AccountProvider, readonly string[]> = {
+  claude: ["CLAUDE.md", "settings.json", "skills", "agents", "commands", "keybindings.json"],
+  codex: ["config.toml", "AGENTS.md", "prompts", "skills"],
+};
+
+export function shareDefaults(account: string): void {
+  const found = findAccount(account);
+  if (!found?.configDir) return;
+  const from =
+    found.provider === "claude" ? claudeHome(DEFAULT_ACCOUNTS.claude) : codexHome(DEFAULT_ACCOUNTS.codex);
+  if (path.resolve(from) === path.resolve(found.dir)) return;
+  try {
+    fs.mkdirSync(found.dir, { recursive: true, mode: 0o700 });
+  } catch (err) {
+    warn("accounts", err, "shareDefaults");
+    return;
+  }
+  for (const name of SHARED[found.provider]) {
+    const source = path.join(from, name);
+    const target = path.join(found.dir, name);
+    try {
+      if (!fs.existsSync(source) || fs.lstatSync(target, { throwIfNoEntry: false })) continue;
+      fs.symlinkSync(source, target);
+    } catch (err) {
+      warn("accounts", err, `shareDefaults ${name}`);
+    }
+  }
 }
 
 /**
@@ -99,13 +358,27 @@ export function accountKeychainService(account: ClaudeAccount): string {
  * so the resume finds it whichever account it last ran on (carrySession).
  */
 export function claudeSessionEnv(
-  project: Pick<Project, "account" | "path">,
+  project: Pick<Project, "account" | "accounts" | "path">,
   resume: string | undefined,
   env: Record<string, string | undefined> | undefined,
 ): Record<string, string | undefined> {
-  const account = accountOf(project);
+  const account = accountOf(project, "claude");
   if (resume) carrySession(project.path, resume, claudeConfigDir(account));
   return { ...env, ...accountEnv(account) };
+}
+
+/**
+ * The same for a Codex session: its account's CODEX_HOME, and a thread
+ * being resumed brought there first (carryCodexSession). Codex keeps one
+ * home per process, so this is all there is to it.
+ */
+export function codexSessionEnv(
+  project: Pick<Project, "account" | "accounts"> | HomeSettings | null | undefined,
+  resume: string | undefined,
+): Record<string, string> {
+  const account = accountOf(project, "codex");
+  if (resume) carryCodexSession(resume, codexHome(account));
+  return accountEnv(account);
 }
 
 /* ── transcripts ─────────────────────────────────────────────────── */
@@ -147,7 +420,7 @@ export function claudeSessionFileIn(
   return undefined;
 }
 
-/** Every copy of a session's transcript across both homes, newest first. */
+/** Every copy of a session's transcript across every Claude home, newest first. */
 export function claudeSessionCopies(
   projectPath: string,
   sessionId: string,
@@ -200,5 +473,64 @@ export function carrySession(projectPath: string, sessionId: string, toConfigDir
     }
   } catch (err) {
     warn("accounts", err, "carrySession");
+  }
+}
+
+/** What a session on another harness adds for the project's account:
+ *  Codex its CODEX_HOME; the rest have no accounts of ruri's to pick. */
+export function providerSessionEnv(
+  providerId: string,
+  project: Pick<Project, "account" | "accounts"> | HomeSettings | null | undefined,
+  resume: string | undefined,
+): Record<string, string> {
+  return providerId === "codex" ? codexSessionEnv(project, resume?.replace(/^codex:/, "")) : {};
+}
+
+/** A Codex thread's rollout under one home, wherever its day put it. */
+export function codexRolloutIn(home: string, sessionId: string): string | undefined {
+  const stack = [path.join(home, "sessions")];
+  while (stack.length > 0) {
+    const dir = stack.pop()!;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (err) {
+      if (!isMissing(err)) warn("accounts", err, "codexRolloutIn");
+      continue;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) stack.push(full);
+      else if (entry.name.includes(sessionId) && entry.name.endsWith(".jsonl")) return full;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Bring a Codex thread's rollout to the home it is about to be resumed
+ * from — Codex, like Claude Code, finds a thread only under its own home.
+ * The newest copy is copied to the same place under the target; nothing
+ * happens when the target already has the newest.
+ */
+export function carryCodexSession(sessionId: string, toHome: string): void {
+  let newest: { home: string; file: string; at: number } | undefined;
+  for (const home of codexHomes()) {
+    const file = codexRolloutIn(home, sessionId);
+    if (!file) continue;
+    try {
+      const at = fs.statSync(file).mtimeMs;
+      if (!newest || at > newest.at) newest = { home, file, at };
+    } catch (err) {
+      if (!isMissing(err)) warn("accounts", err, "carryCodexSession");
+    }
+  }
+  if (!newest || path.resolve(newest.home) === path.resolve(toHome)) return;
+  try {
+    const dest = path.join(toHome, path.relative(newest.home, newest.file));
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.copyFileSync(newest.file, dest);
+  } catch (err) {
+    warn("accounts", err, "carryCodexSession");
   }
 }

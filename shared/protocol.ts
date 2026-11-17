@@ -167,10 +167,14 @@ export interface Project {
    *  and a task on the project's list (server/workers.ts). Set when the
    *  project switches; false only when switched back by hand. */
   workers?: boolean;
-  /** Which Claude sign-in its sessions spend from (CLAUDE_ACCOUNTS); work
-   *  when unset. Read at every spawn, so a change reaches the next one and
-   *  leaves a running session alone (server/accounts.ts). */
-  account?: ClaudeAccount;
+  /** Which account each harness spends from, by provider (accountPick):
+   *  an AccountInfo id, its provider's default (DEFAULT_ACCOUNTS) when
+   *  unset. Read at every spawn, so a change reaches the next one and leaves
+   *  a running session alone (server/accounts.ts). */
+  accounts?: Partial<Record<AccountProvider, string>>;
+  /** The Claude account, as projects said it before any provider had one
+   *  of its own: read, never written (accounts.claude is). */
+  account?: string;
   /** Live components for this project, said for itself: on or off whatever
    *  the setting in Settings says. Unset, it follows the setting
    *  (liveComponentsFor; server/mycelium.ts). It is the project's, so it
@@ -190,22 +194,69 @@ export function liveComponentsFor(
 }
 
 /**
- * The two Claude sign-ins a project can run on. "work" is Claude Code's
- * default config — whatever CLAUDE_CONFIG_DIR ruri itself was started
- * with, normally none; "personal" is CLAUDE_CONFIG_DIR=~/.claude-personal.
+ * The harnesses an account can be for. Each keeps everything of a sign-in
+ * under one folder of its own — Claude Code its CLAUDE_CONFIG_DIR, Codex its
+ * CODEX_HOME — so any number of them sit side by side on one machine.
  */
-export type ClaudeAccount = "work" | "personal";
-export const CLAUDE_ACCOUNTS: readonly ClaudeAccount[] = ["work", "personal"];
-export const DEFAULT_CLAUDE_ACCOUNT: ClaudeAccount = "work";
+export type AccountProvider = "claude" | "codex";
+export const ACCOUNT_PROVIDERS: readonly AccountProvider[] = ["claude", "codex"];
+
+/** What a project runs each harness on until it says otherwise: Claude
+ *  Code's and Codex's own config, as ruri itself was started with it. */
+export const DEFAULT_ACCOUNTS: Readonly<Record<AccountProvider, string>> = { claude: "work", codex: "codex" };
+export const DEFAULT_CLAUDE_ACCOUNT = DEFAULT_ACCOUNTS.claude;
+
+export function isAccountProvider(provider: string | undefined): provider is AccountProvider {
+  return provider === "claude" || provider === "codex";
+}
 
 /**
- * Where a harness's limit windows sit in `usage`: under its provider id, as
- * ever — "claude" is the work account's, so a client that knows nothing of
- * accounts reads the default one — and the personal account's beside it,
- * under "claude-personal".
+ * One sign-in, as the Accounts page and the account chip show it. "work",
+ * "personal" and "codex" are always there (built in: renamed, never
+ * removed); any others are the user's own, each with a folder of its own.
  */
-export function usageKey(provider: string, account?: ClaudeAccount): string {
-  return provider === "claude" && account === "personal" ? "claude-personal" : provider;
+export interface AccountInfo {
+  id: string;
+  /** What the user calls it. */
+  name: string;
+  provider: AccountProvider;
+  /** The folder its sign-in lives in, on the machine ruri runs on. */
+  dir: string;
+  builtIn?: boolean;
+  /** Whether it is signed in — unset until it has been looked at. */
+  signedIn?: boolean;
+  /** Who it is signed in as: an email, when the harness says. */
+  who?: string;
+  /** Its plan: "max", "pro", "plus"… */
+  plan?: string;
+  /** The organization it signs in under, when it has one. */
+  org?: string;
+  /** Where its limit windows sit in `usage` (usageKey). */
+  usage: string;
+}
+
+/** The account a project says it runs a harness on — its pick for that
+ *  provider, the Claude pick from before there were others, else the
+ *  default. Whether that account still exists is the caller's to check
+ *  (server/accounts.ts accountOf; the web's channelAccount). */
+export function accountPick(
+  project: Pick<Project, "account" | "accounts"> | HomeSettings | undefined | null,
+  provider: AccountProvider,
+): string {
+  const legacy = provider === "claude" && project && "account" in project ? project.account : undefined;
+  return project?.accounts?.[provider] || legacy || DEFAULT_ACCOUNTS[provider];
+}
+
+/**
+ * Where a harness's limit windows sit in `usage`: under its provider id for
+ * its default account, as ever — so a client that knows nothing of accounts
+ * reads the one it always did — "claude-personal" for the personal one, as
+ * before, and `<provider>:<id>` for any other.
+ */
+export function usageKey(provider: string, account?: string): string {
+  if (!isAccountProvider(provider) || !account || account === DEFAULT_ACCOUNTS[provider]) return provider;
+  if (provider === "claude" && account === "personal") return "claude-personal";
+  return `${provider}:${account}`;
 }
 
 /** A project's lead: the session marked so, else its first — never its
@@ -2119,6 +2170,8 @@ export interface HomeSettings {
   model?: string;
   permissionMode?: PermissionMode;
   effort?: string;
+  /** Home's account per harness, as a project's (Project.accounts). */
+  accounts?: Partial<Record<AccountProvider, string>>;
 }
 
 /**
@@ -2324,7 +2377,18 @@ export type ClientMessage =
    *  id or any of its chats' — the setting is the whole project's. Running
    *  sessions keep theirs; the next one each chat starts (or resumes) runs
    *  on the new account. Answered with `projects`. */
-  | { type: "set_account"; projectId: string; account: ClaudeAccount }
+  /** Run the project (a chat's id names its project; Home's is HOME_ID)
+   *  on this account — for the harness the account is for. */
+  | { type: "set_account"; projectId: string; account: string }
+  | { type: "account_add"; provider: AccountProvider; name: string }
+  | { type: "account_rename"; id: string; name: string }
+  /** Forget an account of the user's own; its folder stays on disk. */
+  | { type: "account_remove"; id: string }
+  /** Sign in: a shell under the account's row runs the harness's login. */
+  | { type: "account_sign_in"; id: string }
+  | { type: "account_sign_out"; id: string }
+  /** Look again at who every account is signed in as. */
+  | { type: "account_refresh" }
   /** Live components for one project, over the setting in Settings: on,
    *  off, or "default" to follow the setting again. A chat's id names its
    *  project. */
@@ -2709,9 +2773,11 @@ export type ServerMessage =
       queued: Record<string, QueuedPrompt[]>;
       /** Channels whose queue is standing by, and why. */
       queuesHeld: Record<string, QueueHold>;
-      /** Limit windows per provider id (empty until the first read):
-       *  `claude` is the work account's, `claude-personal` the personal
-       *  one's (usageKey). */
+      /** Every account a harness can run on (server/accounts.ts). */
+      accounts: AccountInfo[];
+      /** Limit windows per account (empty until the first read): `claude`
+       *  is the work account's, `codex` the default Codex one's, the rest
+       *  under usageKey(provider, id). */
       usage: Record<string, UsageLimits>;
       /** Context occupancy per channel (Claude sessions that have run). */
       contexts: Record<string, ContextUsage>;
@@ -2769,6 +2835,7 @@ export type ServerMessage =
       remoteDevice?: { id: string; name: string };
     }
   | { type: "projects"; projects: Project[] }
+  | { type: "accounts"; accounts: AccountInfo[] }
   /** The sidebar's arrangement, whole, whenever it changes. */
   | { type: "sidebar"; sidebar: SidebarLayout }
   /** A chat's unsent prompt changed on another device (another window, or

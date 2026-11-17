@@ -22,7 +22,8 @@ import { useId } from "react";
 import { usageKey, type ContextUsage, type UsageLimits } from "../../../shared/protocol";
 import { DRAGON, DRAGON_H, DRAGON_W } from "../dragonArt";
 import { useNow } from "../lib/beat";
-import { accountOf, useRuri } from "../store";
+import { channelAccount } from "../lib/accounts";
+import { useRuri } from "../store";
 
 /** Where the drawing swaps to the sweating one. */
 const SWEAT_AT = 80;
@@ -194,8 +195,8 @@ function useMinute(): number {
 /**
  * Two dragons for one side of the composer — context and 5h on the left,
  * the two weekly windows on the right. `model` decides whose account the
- * windows come from — Claude models carry no provider id — and for Claude,
- * the chat's project says which of the two sign-ins (usageKey).
+ * windows come from — Claude models carry no provider id — and the chat's
+ * project says which of that harness's accounts (channelAccount).
  */
 export function DragonGauges({
   channelId,
@@ -209,10 +210,9 @@ export function DragonGauges({
 }) {
   const context = useRuri((s) => s.contexts[channelId]);
   const provider = useRuri((s) => s.models.find((m) => m.value === model)?.provider ?? "claude");
-  const account = useRuri((s) =>
-    accountOf(s.projects.find((p) => p.sessions.some((x) => x.id === channelId))),
-  );
-  const usage = useRuri((s) => s.usage[usageKey(provider, account)] ?? NO_LIMITS);
+  // the account the chat's project (or Home) runs this harness on
+  const key = useRuri((s) => channelAccount(s, channelId, provider)?.usage ?? usageKey(provider));
+  const usage = useRuri((s) => s.usage[key] ?? NO_LIMITS);
   const now = useMinute();
   const gauges = gaugesFor(context, usage, now);
   const pair = side === "left" ? gauges.slice(0, 2) : gauges.slice(2, 4);

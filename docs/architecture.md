@@ -176,6 +176,9 @@ Environment variables:
 | `RURI_NO_HARNESS_UPDATES=1` | A standalone server never updates the machine's CLIs on its own (the scripts set it) |
 | `RURI_GHOSTLY` | The `ghostly` command to run for the vault, instead of the one found on the machine — or empty for none (tests and scripts set it empty) |
 | `RURI_TAILSCALE` | The `tailscale` command to read the tailnet with, instead of the one found on the machine — or empty for none (tests and scripts set it empty) |
+| `RURI_PERSONAL_CLAUDE_DIR` | The built-in Personal account's Claude config folder (default `~/.claude-personal`) |
+| `RURI_ACCOUNT_HOMES` | Where the folders of accounts added on the Accounts page go (default the home folder: `~/.claude-<id>`, `~/.codex-<id>`; tests set it) |
+| `RURI_CLAUDE_CLI` / `RURI_CODEX_CLI` | The `claude` / `codex` command the Accounts page asks who an account is signed in as, and signs in and out with, instead of the one found on the machine — or empty for none (tests set them empty) |
 | `RURI_SMALL_AT_ONCE` | How many small-model calls run at once across the app (default 2) |
 | `RURI_SMALL_DEADLINE_MS` | How long a small-model call may run before it is aborted (default 60000 plus 20 per token it may write) |
 | `CLAUDE_CONFIG_DIR` | The Claude CLI's own config folder; ruri reads the CLI's session transcripts from its `projects/` (default `~/.claude`) |

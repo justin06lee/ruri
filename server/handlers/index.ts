@@ -4,6 +4,7 @@
  */
 import type { ClientMessage } from "../../shared/protocol.js";
 import type { ClientConn, ServerContext } from "../context.js";
+import { accountHandlers } from "./accounts.js";
 import { boardHandlers } from "./boards.js";
 import { componentHandlers } from "./components.js";
 import { crewHandlers } from "./crew.js";
@@ -25,6 +26,7 @@ import type { Handler, Handlers, MessageType } from "./types.js";
 
 const HANDLERS: Handlers = {
   ...projectHandlers,
+  ...accountHandlers,
   ...promptHandlers,
   ...rewindHandlers,
   ...transcriptHandlers,

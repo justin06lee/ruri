@@ -31,7 +31,7 @@ import {
   type PreToolUseHookSpecificOutput,
   type SessionStartHookSpecificOutput,
 } from "@anthropic-ai/claude-agent-sdk";
-import { claudeSessionEnv } from "./accounts.js";
+import { claudeSessionEnv, providerSessionEnv } from "./accounts.js";
 import { buildDiff, parseUnifiedDiff, readBefore } from "./diff.js";
 import { CostMeter, type CallUsage } from "./turnCost.js";
 import { trimCommand } from "./trimOutput.js";
@@ -221,8 +221,9 @@ export interface ProviderHooks {
   /** Build a provider instance working in the given project directory,
    *  for the given chat — whose id rides into the harness's environment,
    *  so a process on this machine can be traced back to its conversation
-   *  (server/resources.ts). */
-  create(id: string, workDir: string, channelId: string): Provider;
+   *  (server/resources.ts) — and the project's account for that harness,
+   *  laid over everything else (server/accounts.ts). */
+  create(id: string, workDir: string, channelId: string, account?: Record<string, string>): Provider;
   /** Whether an agentic session can fork at its provider-native turn ids. */
   canFork?(id: string): boolean;
 }
@@ -3819,7 +3820,14 @@ export class SessionManager {
         },
       };
       if (route.providerId && this.providers) {
-        const provider = this.providers.create(route.providerId, project.path, project.id);
+        // the project's account for this harness, as it stands now, and
+        // the thread being resumed brought to that account's home first
+        const provider = this.providers.create(
+          route.providerId,
+          project.path,
+          project.id,
+          providerSessionEnv(route.providerId, project, resume),
+        );
         // the agentic path (Codex app-server, ACP) is the harness verbatim;
         // run()-per-turn stays as the fallback for anything without it
         built = isSessionProvider(provider)

@@ -3,9 +3,14 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { listSessions } from "@anthropic-ai/claude-agent-sdk";
 import type { Project, RecentSession, TranscriptEvent } from "../shared/protocol.js";
-import { claudeHomes, claudeProjectDirIn, claudeSessionCopies } from "./accounts.js";
+import {
+  claudeHomes,
+  claudeProjectDirIn,
+  claudeSessionCopies,
+  codexHomes,
+  codexRolloutIn,
+} from "./accounts.js";
 import { readImage, toolSummary } from "./sessions.js";
-import { codexHome } from "./usage.js";
 import { isMissing, warn } from "./log.js";
 
 /**
@@ -202,9 +207,9 @@ function readClaude(project: Project, file: string): TranscriptEvent[] {
 
 /* ── Codex ──────────────────────────────────────────────────────── */
 
-/** Every rollout written in the last while, newest first. */
+/** Every rollout written in the last while, under every Codex account's
+ *  home, newest first. */
 function recentRollouts(): string[] {
-  const root = path.join(codexHome(), "sessions");
   const cutoff = Date.now() - RECENT_DAYS * 86_400_000;
   const files: Array<{ file: string; at: number }> = [];
   const walk = (dir: string, depth: number) => {
@@ -230,7 +235,7 @@ function recentRollouts(): string[] {
       }
     }
   };
-  walk(root, 0);
+  for (const home of codexHomes()) walk(path.join(home, "sessions"), 0);
   return files.sort((a, b) => b.at - a.at).map((f) => f.file);
 }
 
@@ -377,22 +382,9 @@ function codexFile(sessionId: string): string | undefined {
 }
 
 function scanFor(sessionId: string): string | undefined {
-  const root = path.join(codexHome(), "sessions");
-  const stack = [root];
-  while (stack.length > 0) {
-    const dir = stack.pop()!;
-    let entries: fs.Dirent[];
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch (err) {
-      if (!isMissing(err)) warn("recent", err, "scanFor");
-      continue;
-    }
-    for (const entry of entries) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) stack.push(full);
-      else if (entry.name.includes(sessionId) && entry.name.endsWith(".jsonl")) return full;
-    }
+  for (const home of codexHomes()) {
+    const file = codexRolloutIn(home, sessionId);
+    if (file) return file;
   }
   return undefined;
 }

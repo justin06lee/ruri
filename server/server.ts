@@ -65,6 +65,8 @@ import { foldDigest } from "./digestFold.js";
 import { setModelCatalog } from "./modelCatalog.js";
 import { onAccount, setMemoryModel, setSmallModel } from "./smallmodel.js";
 import { accountFor } from "./accounts.js";
+import { refreshAccounts, SIGN_IN_CHANNEL } from "./accountStatus.js";
+import { broadcastAccounts, signInEnded } from "./handlers/accounts.js";
 import { createSocketServer } from "./socket.js";
 import { TalkBook } from "./talk.js";
 import { TeamGovernor } from "./team.js";
@@ -185,6 +187,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         // out before the news that there is no more of it
         relay.flush(termId);
         clients.broadcast({ type: "terminal_exit", projectId, termId, note });
+        // a sign-in shell's end is the moment to look at its account again
+        if (projectId.startsWith(SIGN_IN_CHANNEL)) signInEnded(ctx, projectId);
       },
       // a shell quit from inside took its tab with it
       onTabs: (projectId, tabs) => clients.broadcast({ type: "terminal_tabs", projectId, tabs }),
@@ -253,6 +257,10 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   }
 
   ctx.usage.pushUsage(true);
+  // who each account is signed in as, asked once at launch
+  void refreshAccounts(true).then((changed) => {
+    if (changed) broadcastAccounts(ctx);
+  });
 
   const usageTimer = setInterval(() => {
     ctx.usage.pushUsage(true);

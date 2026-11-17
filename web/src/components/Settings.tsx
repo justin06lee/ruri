@@ -7,7 +7,8 @@ import type {
   PermissionState,
 } from "../../../shared/protocol";
 import { EFFORT_LEVELS, HOME_ID } from "../../../shared/protocol";
-import { accountOf, send, setProjectAccount, setProjectLive, useRuri } from "../store";
+import { accountIn } from "../lib/accounts";
+import { send, setProjectAccount, setProjectLive, useRuri } from "../store";
 import { BandEditor } from "./BandEditor";
 import { Capped } from "./Capped";
 import { Icon } from "./chat/Icon";
@@ -873,33 +874,34 @@ function DesignTaste() {
 }
 
 /** Settings → General → Claude account (server/accounts.ts): which sign-in
- *  the open project's Claude sessions run on. Only with a project open —
- *  Home always runs on work. */
+ *  the open project's Claude sessions run on. Only with a project open. */
 function ClaudeAccountRow() {
   const project = useRuri((s) => s.projects.find((p) => p.sessions.some((x) => x.id === s.activeId)));
+  const accounts = useRuri((s) => s.accounts);
   if (!project) return null;
-  const account = accountOf(project);
+  const current = accountIn(accounts, project, "claude");
   return (
     <div className="settings-row">
       <span className="settings-label">
         Claude account
         <InfoTip>
-          Which Claude sign-in {project.name}&apos;s chats, teammates and agents run on: work is Claude
-          Code&apos;s own, personal is ~/.claude-personal. A chat already running keeps its account; its next
-          start, or its next resume, is on this one.
+          Which Claude sign-in {project.name}&apos;s chats, teammates and agents run on. A chat already running
+          keeps its account; its next start, or its next resume, is on this one.
         </InfoTip>
       </span>
       <div className="settings-value">
         <div className="seg">
-          {(["work", "personal"] as const).map((option) => (
-            <button
-              key={option}
-              className={`seg-option ${account === option ? "active" : ""}`}
-              onClick={() => setProjectAccount(project.id, option)}
-            >
-              {option === "work" ? "Work" : "Personal"}
-            </button>
-          ))}
+          {accounts
+            .filter((a) => a.provider === "claude")
+            .map((option) => (
+              <button
+                key={option.id}
+                className={`seg-option ${current === option.id ? "active" : ""}`}
+                onClick={() => setProjectAccount(project.id, option)}
+              >
+                {option.name}
+              </button>
+            ))}
         </div>
       </div>
     </div>

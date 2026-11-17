@@ -8,19 +8,32 @@ import {
   accountEnv,
   accountFor,
   accountKeychainService,
+  accountOf,
+  addAccount,
+  carryCodexSession,
   carrySession,
   claudeHome,
+  claudeHomes,
   claudeProjectDirIn,
   claudeSessionEnv,
+  codexHome,
+  codexHomes,
   keychainService,
+  listAccounts,
+  providerSessionEnv,
+  removeAccount,
+  renameAccount,
+  shareDefaults,
 } from "./accounts.js";
 import { claudeSessionGone, claudeSessionHas } from "./recent.js";
 
 /**
- * A project runs on one of two Claude sign-ins. Work is Claude Code's own
- * config, left as ruri has it; personal is its own CLAUDE_CONFIG_DIR. The
- * keychain item each is read from is named the way Claude Code names it,
- * and a session resumed on the other account is brought over first.
+ * A project runs on any of the accounts ruri knows. Work is Claude Code's
+ * own config, left as ruri has it; personal is its own CLAUDE_CONFIG_DIR;
+ * Codex's default is its own CODEX_HOME; and every account the user adds
+ * is a folder of its own. The keychain item each is read from is named the
+ * way Claude Code names it, and a session resumed on another account is
+ * brought over first.
  */
 
 let root: string;
@@ -28,7 +41,13 @@ let work: string;
 let personal: string;
 let project: string;
 const saved: Record<string, string | undefined> = {};
-const VARS = ["CLAUDE_CONFIG_DIR", "RURI_PERSONAL_CLAUDE_DIR"];
+const VARS = [
+  "CLAUDE_CONFIG_DIR",
+  "RURI_PERSONAL_CLAUDE_DIR",
+  "CODEX_HOME",
+  "RURI_ACCOUNT_HOMES",
+  "RURI_CONFIG_DIR",
+];
 
 beforeEach(() => {
   for (const name of VARS) saved[name] = process.env[name];
@@ -39,6 +58,10 @@ beforeEach(() => {
   fs.mkdirSync(project, { recursive: true });
   process.env["CLAUDE_CONFIG_DIR"] = work;
   process.env["RURI_PERSONAL_CLAUDE_DIR"] = personal;
+  process.env["CODEX_HOME"] = path.join(root, "codex");
+  process.env["RURI_ACCOUNT_HOMES"] = path.join(root, "homes");
+  // accounts.json of this test's own
+  process.env["RURI_CONFIG_DIR"] = path.join(root, "config");
 });
 afterEach(() => {
   for (const name of VARS) {
@@ -170,9 +193,131 @@ describe("a session resumed on the other account", () => {
   });
 });
 
-test("the usage gauges keep the work account under claude", () => {
+test("the usage gauges keep each harness's default under its own id", () => {
   expect(usageKey("claude", "work")).toBe("claude");
   expect(usageKey("claude")).toBe("claude");
   expect(usageKey("claude", "personal")).toBe("claude-personal");
-  expect(usageKey("codex", "personal")).toBe("codex");
+  expect(usageKey("claude", "side")).toBe("claude:side");
+  expect(usageKey("codex", "codex")).toBe("codex");
+  expect(usageKey("codex", "side")).toBe("codex:side");
+  expect(usageKey("gemini", "side")).toBe("gemini");
+});
+
+describe("the accounts ruri knows", () => {
+  test("the built-in three are always there, each in its own folder", () => {
+    expect(listAccounts().map((a) => [a.id, a.provider, a.dir, a.builtIn])).toEqual([
+      ["work", "claude", work, true],
+      ["personal", "claude", personal, true],
+      ["codex", "codex", path.join(root, "codex"), true],
+    ]);
+  });
+
+  test("an added account gets an id from its name, a folder of its own, and outlives a restart", () => {
+    const side = addAccount("claude", "Side Gig");
+    expect(side).toMatchObject({ id: "side-gig", name: "Side Gig", provider: "claude", builtIn: false });
+    expect(side.dir).toBe(path.join(root, "homes", ".claude-side-gig"));
+    expect(fs.existsSync(side.dir)).toBe(true);
+    // the same name again is another account, not the same one
+    expect(addAccount("claude", "Side Gig").id).toBe("side-gig-2");
+    // a name with no Latin in it still gets a folder
+    expect(addAccount("codex", "회사").id).toMatch(/^account-[0-9a-f]{4}$/);
+    const saved = JSON.parse(fs.readFileSync(path.join(root, "config", "accounts.json"), "utf8"));
+    expect(saved.accounts.map((a: { id: string }) => a.id).slice(0, 2)).toEqual(["side-gig", "side-gig-2"]);
+    expect(
+      listAccounts()
+        .map((a) => a.id)
+        .slice(0, 4),
+    ).toEqual(["work", "personal", "side-gig", "side-gig-2"]);
+  });
+
+  test("renamed — the built-ins too — and removed, the built-ins never", () => {
+    const side = addAccount("codex", "Side");
+    expect(renameAccount("work", "Company")).toBe(true);
+    expect(renameAccount(side.id, "Spare")).toBe(true);
+    expect(renameAccount("nobody", "x")).toBe(false);
+    expect(listAccounts().find((a) => a.id === "work")?.name).toBe("Company");
+    expect(listAccounts().find((a) => a.id === side.id)?.name).toBe("Spare");
+    expect(removeAccount("work")).toBeUndefined();
+    expect(removeAccount(side.id)?.id).toBe(side.id);
+    expect(listAccounts().map((a) => a.id)).toEqual(["work", "personal", "codex"]);
+    // its folder, sign-in and all, stays where it was
+    expect(fs.existsSync(side.dir)).toBe(true);
+  });
+
+  test("a project's pick holds while it is an account for that harness; otherwise the default", () => {
+    const side = addAccount("codex", "Side");
+    expect(accountOf({ accounts: { codex: side.id } }, "codex")).toBe(side.id);
+    expect(accountOf({ accounts: { codex: side.id } }, "claude")).toBe("work");
+    // a Claude account named for Codex, or one since removed
+    expect(accountOf({ accounts: { codex: "personal" } }, "codex")).toBe("codex");
+    removeAccount(side.id);
+    expect(accountOf({ accounts: { codex: side.id } }, "codex")).toBe("codex");
+    // the pick from before there were providers is Claude's
+    expect(accountOf({ account: "personal" }, "claude")).toBe("personal");
+    expect(accountOf({ account: "personal", accounts: { claude: "work" } }, "claude")).toBe("work");
+  });
+
+  test("Home runs on its own pick", () => {
+    const store = {
+      get: () => undefined,
+      findSession: () => undefined,
+      homeSettings: () => ({ accounts: { claude: "personal" } }),
+    };
+    expect(accountFor(store, "home")).toBe("personal");
+    expect(accountFor(store, "home", "codex")).toBe("codex");
+  });
+
+  test("a Codex account runs with its CODEX_HOME; the default as ruri has it", () => {
+    const side = addAccount("codex", "Side");
+    expect(accountEnv("codex")).toEqual({});
+    expect(accountEnv(side.id)).toEqual({ CODEX_HOME: side.dir });
+    expect(codexHome(side.id)).toBe(side.dir);
+    expect(codexHomes()).toEqual([path.join(root, "codex"), side.dir]);
+    expect(providerSessionEnv("codex", { accounts: { codex: side.id } }, undefined)).toEqual({
+      CODEX_HOME: side.dir,
+    });
+    expect(providerSessionEnv("gemini", { accounts: { codex: side.id } }, undefined)).toEqual({});
+  });
+
+  test("every Claude account's home is looked in for a transcript", () => {
+    const side = addAccount("claude", "Side");
+    expect(claudeHomes()).toEqual([work, personal, side.dir]);
+    expect(claudeHomes(side.id)[0]).toBe(side.dir);
+    expect(claudeSessionEnv({ accounts: { claude: side.id }, path: project }, undefined, {})).toEqual({
+      CLAUDE_CONFIG_DIR: side.dir,
+    });
+  });
+
+  test("a Codex thread resumed on another account has its rollout brought there", () => {
+    const side = addAccount("codex", "Side");
+    const day = path.join(root, "codex", "sessions", "2026", "11", "17");
+    fs.mkdirSync(day, { recursive: true });
+    fs.writeFileSync(path.join(day, "rollout-2026-11-17T10-00-00-thread-1.jsonl"), "{}\n");
+    providerSessionEnv("codex", { accounts: { codex: side.id } }, "codex:thread-1");
+    expect(
+      fs.readFileSync(
+        path.join(side.dir, "sessions", "2026", "11", "17", "rollout-2026-11-17T10-00-00-thread-1.jsonl"),
+        "utf8",
+      ),
+    ).toBe("{}\n");
+    // already there: nothing to do, and nothing breaks
+    carryCodexSession("thread-1", side.dir);
+    carryCodexSession("missing", side.dir);
+  });
+
+  test("an account shares the user's own settings with the default one, and keeps its own", () => {
+    fs.mkdirSync(path.join(work, "skills"), { recursive: true });
+    fs.writeFileSync(path.join(work, "CLAUDE.md"), "be brief");
+    fs.writeFileSync(path.join(work, "settings.json"), "{}");
+    const side = addAccount("claude", "Side");
+    fs.writeFileSync(path.join(side.dir, "settings.json"), '{"own":true}');
+    shareDefaults(side.id);
+    expect(fs.readFileSync(path.join(side.dir, "CLAUDE.md"), "utf8")).toBe("be brief");
+    expect(fs.lstatSync(path.join(side.dir, "skills")).isSymbolicLink()).toBe(true);
+    expect(fs.readFileSync(path.join(side.dir, "settings.json"), "utf8")).toBe('{"own":true}');
+    // never the sign-in, and never into the default itself
+    expect(fs.existsSync(path.join(side.dir, ".credentials.json"))).toBe(false);
+    shareDefaults("work");
+    expect(fs.lstatSync(path.join(work, "CLAUDE.md")).isSymbolicLink()).toBe(false);
+  });
 });

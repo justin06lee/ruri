@@ -5,6 +5,7 @@
  * sends is checked against its schema and handed to its handler
  * (server/handlers).
  */
+import { accountInfos } from "./accountStatus.js";
 import type * as http from "node:http";
 import type * as https from "node:https";
 import * as os from "node:os";
@@ -116,6 +117,7 @@ export function createSocketServer(
       componentDirs: ctx.components.allDirs(boardIds),
       secrets: ctx.secrets.meta(),
       vault: ctx.vault.view(),
+      accounts: accountInfos(),
       queued: Object.fromEntries(projectIds.map((id) => [id, ctx.queues.visibleQueue(id)])),
       queuesHeld: Object.fromEntries(
         projectIds.flatMap((id) => {

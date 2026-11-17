@@ -20,4 +20,13 @@ process.env["RURI_CONFIG_DIR"] = dir;
 // one (server/tailnet.ts). A test of either names a stand-in.
 process.env["RURI_GHOSTLY"] = "";
 process.env["RURI_TAILSCALE"] = "";
+// …and none of the user's accounts: no account added in a test makes a
+// folder in their home, no status is asked of their own Claude Code or
+// Codex, and the personal and Codex homes are folders of the run's own
+// (server/accounts.ts, accountStatus.ts). A test of either names its own.
+process.env["RURI_ACCOUNT_HOMES"] = path.join(dir, "homes");
+process.env["RURI_PERSONAL_CLAUDE_DIR"] = path.join(dir, "homes", ".claude-personal");
+process.env["CODEX_HOME"] = path.join(dir, "homes", ".codex");
+process.env["RURI_CLAUDE_CLI"] = "";
+process.env["RURI_CODEX_CLI"] = "";
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));

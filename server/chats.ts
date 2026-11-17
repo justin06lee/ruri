@@ -395,11 +395,12 @@ export function createChatManager(ctx: ServerContext): SessionManager {
       parse: (model) => ctx.models.registry.parse(model),
       // the chat's id rides in beside the vault, for the same reason it
       // does in `tagged` below (server/resources.ts)
-      create: (id, workDir, channelId) =>
+      create: (id, workDir, channelId, account) =>
         ctx.models.registry.createFor(id, workDir, {
           ...ctx.secrets.env(),
           ...(channelId === HOME_ID ? {} : cliEnv(libraryEndpoint(ctx, channelId))),
           RURI_CHANNEL: channelId,
+          ...account,
         }),
       canFork: (id) => ctx.models.registry.canForkSession(id),
     },

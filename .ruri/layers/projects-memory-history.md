@@ -8,14 +8,13 @@ This layer owns project sessions and everything remembered about them: sessions/
 ## Where to change what
 
 - **Projects (open/close/rename/star/hide), sidebar folders and their layout, leads and the hidden liaison, and their teams' members (stop/refresh/restart/retire, closeMember, the one teardown forgetChat):** server/projects.ts, server/handlers/projects.ts, server/talk.ts, server/ruriDir.ts
+- **A project's account (one-tap switch from the project, Home's pick):** server/handlers/projects.ts, server/handlers/projects.test.ts
 - **Finding a project by name (find_project) and Home's use of it:** server/finder.ts, server/projects.ts, server/finder.test.ts
+- **Recent import of sessions ruri did not start:** server/recent.ts, server/handlers/projects.ts
 - **Session archive and transcript:** server/archive.ts, server/notes.ts, server/handlers/boards.ts
 - **Checkpoints and rewind:** server/checkpoints.ts, server/gitState.ts, scripts/checkpoint.ts, scripts/rewind-compaction.ts
 - **Compaction, digests, auto-compact, self-compaction and carried delegations:** server/compaction.ts, server/handoff.ts, server/selfCompaction.ts, server/digestFold.ts
 - **Memory log, folds and the check against the code:** server/memoryLog.ts, server/memoryFold.ts, server/memoryQueue.ts, server/memoryCheck.ts
-- **Recall across the project:** server/projectSearch.ts, server/retrieval.ts, server/recall.ts, server/embeddings.ts
-- **Project brief / architecture sheet and lead/liaison briefings:** server/brief.ts, server/catchupBrief.ts, server/briefing.ts, server/sheetBudget.ts
-- **Catchup from existing repo:** server/catchup.ts, server/catchupBrief.ts, scripts/history.ts
 
 ## How it works
 
@@ -26,14 +25,13 @@ This layer owns project sessions and everything remembered about them: sessions/
 ## Key files
 
 - server/projects.ts — ProjectStore over projects.json plus per-chat session settings; a project's lead first and its members with duty and layers, plus the hidden liaison session (formTeams at launch, addMember, setMember)
-- server/handlers/projects.ts — socket moves for projects, sidebar folder moves, a member off its team (closeMember), an outside chat brought in as a teammate
+- server/handlers/projects.ts — socket moves for projects, sidebar folder moves, a member off its team (closeMember), an outside chat brought in as a teammate, and a project's account pick
+- server/recent.ts — lists Codex rollouts from one account's home for recent import
 - server/finder.ts — find_project lookup of projects by name, the fallback Home uses when a project is hard to locate
 - server/archive.ts — live sessions/<id>.json plus append-only history/<id>.jsonl and turn summaries
 - server/checkpoints.ts — per-prompt hidden git commits and rewind
 - server/compaction.ts — briefs within the token budget, state lines, anchored digest sections
 - server/selfCompaction.ts — agent self-compact notes, threshold checks and continuation into the fresh session
-- server/memoryLog.ts — the memory event log: actor rules, caps that archive, undo, reconcile with briefs.json; fed by server/memoryQueue.ts, checked by server/memoryCheck.ts
-- server/projectSearch.ts — project-wide hybrid search over exchanges and memory lines (BM25 in server/recall.ts)
 
 ## Rules and traps
 
@@ -51,5 +49,5 @@ This layer owns project sessions and everything remembered about them: sessions/
 - Protocol — TranscriptEvent, TurnSummary, MemoryLine, Project/Session and brief sheet types in shared/protocol.ts; the sidebar folder messages and layout in the snapshot also live there
 - Server runtime and transport — routing, auth, uploads and stores hosting projects/handlers endpoints
 - Sidebar UI — folder layout computed by shared/sidebar.ts and shown in web/src/components/Sidebar.tsx; folder moves reach server/handlers/projects.ts over the socket
+- Accounts — a project's account is set over the socket in server/handlers/projects.ts; recent import reads Codex rollouts from the chosen account's home (server/recent.ts)
 - Agent harnesses — session ids resumed; the memory model's lane (completeMemory in server/smallmodel.ts); Claude's PreCompact/SessionStart hooks and the PostToolBatch hook that tells it its context mid-turn (SessionExtras.contextNotice, server/sessions.ts)
-- Library, skills and sweeps — sweep/describe candidates feed catchup; library owns skill removal on teardown

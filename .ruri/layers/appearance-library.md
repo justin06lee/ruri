@@ -53,4 +53,5 @@ Appearance owns ruri's look: light/dark/ember theming, the sidebar peek band, th
 - Desktop shell — windowDrag carries band presses; theme/prefs persist via server copy
 - Chat runs and queue — composer flanks read harness usage for dragon fills
 - Management — Integrations and model catalog surface inside Settings
+- Accounts — Settings has an Accounts section (Accounts.tsx, owned by another layer) to add, sign in to, and remove accounts
 - Library, skills and sweeps — the page reads NamedComponent (confirmed, missing, componentStale) and searches with shared/librarySearch.ts, the same search as ruri search; it sends component_update (a name confirms it) and component_current

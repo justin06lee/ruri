@@ -17,8 +17,7 @@ This layer is the web app shell: entry HTML, React root, global zustand store wi
 - **Shared chat card pieces:** web/src/components/chat/AgentCard.tsx, web/src/components/chat/Icon.tsx, web/src/components/chat/empty.ts
 - **Script progress on agent cards and Agents page:** web/src/components/chat/AgentCard.tsx, web/src/lib/quiet.ts, web/src/components/AgentsPage.tsx, web/src/styles.css
 - **Build, lint and script tests:** vite.config.ts, eslint.config.js, scripts/run-tests.ts
-- **Settings permissions Linux copy:** web/src/components/Settings.tsx
-- **Passwords page, vault view and its tailnet list:** web/src/components/Settings.tsx, web/src/components/VaultDevices.tsx, web/src/store.ts, web/src/styles.css
+- **Settings pages (Linux permissions, Passwords, Accounts) and the account chip:** web/src/components/Settings.tsx, web/src/components/VaultDevices.tsx, web/src/components/Accounts.tsx, web/src/components/AccountPicker.tsx, web/src/lib/accounts.ts
 - **Terminal and composer Linux keys:** web/src/components/Terminal.tsx, web/src/components/Composer.tsx, web/src/components/Switcher.tsx, web/src/components/Sketch.tsx
 - **Team page roster:** web/src/components/TeamPage.tsx, web/src/components/ChatPane.tsx, web/src/store.ts, web/src/styles.css
 - **Chat pane and continuation display:** web/src/components/ChatPane.tsx, web/src/components/PermissionBanner.tsx, web/src/components/Exchange.tsx, web/src/store.ts

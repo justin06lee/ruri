@@ -3,7 +3,7 @@
 One layer of ruri's stack, owning `server/, scripts/auth.ts, scripts/lib/server.ts, scripts/port.ts, scripts/uploads-sweep.ts, shared/protocol.ts, shared/clientSchema.ts, bunfig.toml, scripts/test-config.ts, shared/modelLine.ts, shared/sidebar.ts`. The whole stack, and how the layers connect, is in `.ruri/architecture.md`.
 Don't edit this file: ruri writes it. `ruri layer server-runtime-transport` prints it with every line numbered, what git says changed in this layer lately and what sessions learned working here; once you have read it that way, put right what your work changed — `ruri layer server-runtime-transport add|set|drop <section> …`. Where it and the code disagree, the code is right.
 
-This layer is the Node HTTP + WebSocket transport everything else rides on: one port serving the UI, uploads, and the socket every window talks over, assembled once around a shared ServerContext (server/context.ts) in server/server.ts. It moves bytes and enforces origin/token gates, while domain logic lives in handlers and other layers. It also carries each agent's context-usage line and self-compaction with CARRY_ON continuations (the agent decides; ruri compacts by itself only at the top of the window), session-to-session messaging (talk), the team status page, the sidebar layout (which the phone's home mirrors), the model catalog, unsent-prompt drafts shared across devices, the usage limits the phone shows, and the secret store, which holds ghostly's items in memory beside its own file. A window only sleeps when it cannot be seen at all; a visible-but-unfocused window stays live and keeps receiving streams.
+The Node HTTP + WebSocket transport everything rides on: one port serving the UI, uploads and the socket every window talks over, assembled around a shared ServerContext (server/context.ts) in server/server.ts. It moves bytes and enforces origin/token gates; domain logic lives in handlers. It also carries each agent's context line and self-compaction (the agent decides; ruri compacts only at the top of the window), chat-to-chat messaging (talk), the sidebar layout the phone mirrors, the model catalog, drafts shared across devices, the accounts each project runs its harnesses on and their usage limits, and the secret store with ghostly's items in memory. A window sleeps only when it cannot be seen at all.
 
 ## Where to change what
 
@@ -16,7 +16,7 @@ This layer is the Node HTTP + WebSocket transport everything else rides on: one 
 - **Unsent prompt draft sync across devices:** server/sharing.ts, server/phoneChat.ts, server/clients.ts, shared/protocol.ts
 - **Secrets vault and placeholders:** server/secrets.ts, server/vault.ts, server/atomic.ts
 - **Ghostly vault: the password source, and finding or setting one up on the tailnet (Passwords page):** server/ghostly.ts, server/vault.ts, server/vaultFinder.ts, server/vaultSetup.ts, server/tailnet.ts, server/ssh.ts
-- **Usage limits and machine meters (incl. the phone's Limits card):** server/status.ts, server/usage.ts, server/gauges.ts, server/resources.ts
+- **Accounts and usage per account (Settings → Accounts, the chip, the phone's Limits card and account menu):** server/accounts.ts, server/accountStatus.ts, server/handlers/accounts.ts, server/usage.ts, server/status.ts
 
 ## How it works
 
@@ -37,7 +37,7 @@ This layer is the Node HTTP + WebSocket transport everything else rides on: one 
 - server/auth.ts — origin and token checks for HTTP and socket
 - server/sharing.ts — unsent-prompt drafts shared between devices and windows
 - server/phoneChat.ts — phone-side chat state, including the synced draft
-- server/status.ts — usage limits (5h, week, premium week, resets) sent to the phone
+- server/accounts.ts — every account (the three built in + accounts.json), a project's pick per harness, the env each spawn gets, transcripts and rollouts carried between homes; accountStatus.ts says who each is signed in as
 
 ## Rules and traps
 
@@ -45,8 +45,8 @@ This layer is the Node HTTP + WebSocket transport everything else rides on: one 
 - Never weaken the gate: mutating HTTP needs token + permitted origin, socket needs both at upgrade; GETs stay open.
 - The port is identity (origin for stored prefs) — claim it via server/port.ts, never silently fall to an ephemeral port.
 - Transcript fan-out is scoped: live per-chat events go only to windows showing that chat (server/clients.ts); the snapshot and the projects page carry only Home's and the leads' tails (ProjectStore.leadIds) — a team's members are never sent whole, though a window (or a test script) may still view one by id
-- Persist carefully: uploads as URL-backed files, never inline base64 in transcript events; every store fixes its config folder when it is made, so a put-off write lands where the store was read — and bun test preloads a folder of its own (bunfig.toml, scripts/test-config.ts), so a test run never touches ~/.config/ruri.
-- Synced drafts carry only text; attachments stay on the device they were added on.
+- Persist carefully: uploads as URL-backed files, never inline base64 in transcript events; every store fixes its config folder when it is made, so a put-off write lands where the store was read — and bun test preloads a folder, account homes and no claude/codex CLI of its own (scripts/test-config.ts), so a test never touches ~/.config/ruri or the user's sign-ins.
+- Synced drafts carry only text; attachments stay on the device they were added on. A project's account is read only through accountOf/accountFor (server/accounts.ts): picks are accounts.{claude,codex}, the old account field is Claude's.
 - Secrets never enter model context, logs or transcripts (only names leave secrets.ts and vault.ts); ghostly's are held in memory, never on disk. Setup-script tests need a sandbox PATH and a refusing tailscale stand-in.
 
 ## What it talks to

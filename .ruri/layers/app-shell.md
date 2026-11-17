@@ -18,7 +18,7 @@ This layer is the web app shell: entry HTML, React root, global zustand store wi
 - **Script progress on agent cards and Agents page:** web/src/components/chat/AgentCard.tsx, web/src/lib/quiet.ts, web/src/components/AgentsPage.tsx, web/src/styles.css
 - **Build, lint and script tests:** vite.config.ts, eslint.config.js, scripts/run-tests.ts
 - **Settings permissions Linux copy:** web/src/components/Settings.tsx
-- **Passwords page and vault view:** web/src/components/Settings.tsx, web/src/store.ts, web/src/styles.css
+- **Passwords page, vault view and its tailnet list:** web/src/components/Settings.tsx, web/src/components/VaultDevices.tsx, web/src/store.ts, web/src/styles.css
 - **Terminal and composer Linux keys:** web/src/components/Terminal.tsx, web/src/components/Composer.tsx, web/src/components/Switcher.tsx, web/src/components/Sketch.tsx
 - **Team page roster:** web/src/components/TeamPage.tsx, web/src/components/ChatPane.tsx, web/src/store.ts, web/src/styles.css
 - **Chat pane and continuation display:** web/src/components/ChatPane.tsx, web/src/components/PermissionBanner.tsx, web/src/components/Exchange.tsx, web/src/store.ts

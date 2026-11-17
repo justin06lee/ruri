@@ -22,6 +22,9 @@ struct HomeView: View {
                     }
                     if let report = model.report {
                         Group {
+                            if let usage = report.usage, !usage.isEmpty {
+                                UsageCard(usage: usage)
+                            }
                             if !report.needsYou.isEmpty {
                                 RowSection(title: "Needs you") {
                                     ForEach(report.needsYou) { need in

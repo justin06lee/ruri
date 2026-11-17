@@ -22,6 +22,7 @@ import {
   type StatusChat,
   type StatusNeed,
   type StatusProject,
+  type StatusUsage,
   type StatusReport,
   type StatusState,
   type TranscriptEvent,
@@ -217,7 +218,33 @@ export function statusReport(ctx: ServerContext, opts: { ids?: boolean; now?: nu
     needsYou: read.flatMap((r) => r.needs).sort((a, b) => a.since.localeCompare(b.since)),
     projects: read.map((r) => r.project),
     ...(layout ? { sidebar: layout } : {}),
+    ...usageOf(ctx),
   };
+}
+
+const USAGE_NAMES: Record<string, string> = { claude: "Claude", "claude-personal": "Claude (personal)", codex: "Codex" };
+
+/** The gauges' readings, as the phone shows them: named, with ISO times. */
+function usageOf(ctx: ServerContext): { usage?: StatusUsage[] } {
+  // a stand-in context (the tests') may have no gauges
+  const limits = (ctx as Partial<Pick<ServerContext, "usage">>).usage?.limits ?? {};
+  const usage = Object.entries(limits).flatMap(([key, l]): StatusUsage[] => {
+    if (l.fiveHour === undefined && l.weekly === undefined && !l.scoped) return [];
+    const resets = Object.fromEntries(
+      Object.entries(l.resets ?? {}).flatMap(([k, ms]) => (ms ? [[k, iso(ms)!]] : [])),
+    ) as StatusUsage["resets"];
+    return [
+      {
+        name: USAGE_NAMES[key] ?? key,
+        ...(l.fiveHour !== undefined ? { fiveHour: Math.round(l.fiveHour) } : {}),
+        ...(l.weekly !== undefined ? { weekly: Math.round(l.weekly) } : {}),
+        ...(l.scoped ? { scoped: { label: l.scoped.label, percent: Math.round(l.scoped.percent) } } : {}),
+        ...(resets && Object.keys(resets).length ? { resets } : {}),
+        ...(l.at ? { at: iso(l.at)! } : {}),
+      },
+    ];
+  });
+  return usage.length ? { usage } : {};
 }
 
 /** The sidebar's layout with only the projects the phone is shown in it:

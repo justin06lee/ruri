@@ -1,3 +1,4 @@
+import type { UsageLimits } from "../shared/protocol.js";
 import type { SidebarLayout } from "../shared/sidebar.js";
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
@@ -235,6 +236,33 @@ describe("the status report", () => {
     expect(ruri.lead?.id).toBe("ruri-lead");
     expect(withIds.needsYou[0]!.chatId).toBe("site-lead");
     expect(withIds.needsYou[0]!.projectId).toBe("p-site");
+  });
+
+  test("each harness's limits as the gauges read them, named, with times the phone can read", () => {
+    const w = world();
+    const at = Date.UTC(2026, 10, 17, 9, 0);
+    (w.ctx as unknown as { usage: { limits: Record<string, UsageLimits> } }).usage = {
+      limits: {
+        claude: {
+          fiveHour: 34.4,
+          weekly: 12,
+          scoped: { label: "Fable", percent: 15.6 },
+          resets: { fiveHour: at + 3_600_000 },
+          at,
+        },
+        codex: {},
+      },
+    };
+    expect(statusReport(w.ctx, { now: w.now() }).usage).toEqual([
+      {
+        name: "Claude",
+        fiveHour: 34,
+        weekly: 12,
+        scoped: { label: "Fable", percent: 16 },
+        resets: { fiveHour: "2026-11-17T10:00:00.000Z" },
+        at: "2026-11-17T09:00:00.000Z",
+      },
+    ]);
   });
 
   test("with ids, the sidebar as the Mac arranges it, a hidden project left out; and the stars", () => {

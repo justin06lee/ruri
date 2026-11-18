@@ -310,6 +310,44 @@ struct ChatLogTests {
         ChatFrame(chat: "c", name: "ruri", project: "ruri", state: .working, queue: [], items: items, upsert: upsert, remove: remove)
     }
 
+    @Test func readsTheCardsAChatWaitsAt() throws {
+        let json = """
+        {"chat":"c","name":"ruri","project":"ruri","state":"needs-you","queue":[],"asks":[
+          {"id":"p","kind":"permission","title":"Bash","detail":"rm -rf dist","byAgent":true},
+          {"id":"q","kind":"question","title":"Which?","questions":[
+            {"question":"Which?","header":"Approach","options":[{"label":"Rewrite","description":"from scratch"},{"label":"Patch"}],"multi":false,"other":true},
+            {"question":"How many?","header":"","options":[],"multi":false,"other":true,"optional":true,"number":true}]},
+          {"id":"s","kind":"question","title":"The key?","questions":[],"onMac":true},
+          {"id":"n","kind":"something new","title":"x"}]}
+        """
+        var log = ChatLog()
+        log.apply(try JSONDecoder().decode(ChatFrame.self, from: Data(json.utf8)))
+        #expect(log.asks.map(\.id) == ["p", "q", "s", "n"])
+        #expect(log.asks[0].byAgent == true && log.asks[0].detail == "rm -rf dist")
+        #expect(log.asks[1].questions?.map(\.options.count) == [2, 0])
+        #expect(log.asks[1].questions?[1].number == true)
+        #expect(log.asks[2].onMac == true)
+        // a kind this app doesn't know is shown as leave to give
+        #expect(log.asks[3].kind == .permission)
+        // the next frame without them: answered
+        log.apply(frame(upsert: []))
+        #expect(log.asks.isEmpty)
+    }
+
+    @Test func anAnswerSaysOnlyWhatItIs() throws {
+        func sent(_ body: AnswerBody) throws -> [String: Any] {
+            try JSONSerialization.jsonObject(with: JSONEncoder().encode(body)) as! [String: Any]
+        }
+        let allow = try sent(AnswerBody(id: "c", ask: "p", allow: false))
+        #expect(allow.keys.sorted() == ["allow", "ask", "id"] && allow["allow"] as? Bool == false)
+        #expect(try sent(AnswerBody(id: "c", ask: "q", dismiss: true)).keys.sorted() == ["ask", "dismiss", "id"])
+        let answers = try sent(AnswerBody(id: "c", ask: "q", answers: [ChatAnswered(picked: ["Patch"]), ChatAnswered(other: "three")]))
+        let each = answers["answers"] as! [[String: Any]]
+        #expect(each[0]["picked"] as? [String] == ["Patch"] && each[0]["other"] == nil)
+        #expect(each[1]["picked"] as? [String] == [] && each[1]["other"] as? String == "three")
+        #expect(ChatAnswered(other: "  ").given == false && ChatAnswered(picked: ["a"]).given)
+    }
+
     @Test func takesTheWholeThenWhatChanged() {
         var log = ChatLog()
         log.apply(frame(items: [item("a", "1"), item("draft:m", "Hel")]))

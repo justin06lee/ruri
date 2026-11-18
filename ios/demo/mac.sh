@@ -12,7 +12,8 @@
 #   ios/demo/mac.sh run [link]     build, then open it (paired by a ruri://pair
 #                                  link, when given one)
 #   ios/demo/mac.sh demo <screen>  build, then open it on made-up data: home,
-#                                  project, chat, pair, pair-another or mac
+#                                  project, chat, chat-ask, chat-question,
+#                                  pair, pair-another or mac
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -135,7 +136,7 @@ demo)
   open -g "$APP"
   ;;
 *)
-  sed -n '2,16p' "$0" >&2
+  sed -n '2,17p' "$0" >&2
   exit 2
   ;;
 esac

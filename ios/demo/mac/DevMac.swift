@@ -132,7 +132,7 @@ enum DevMac {
 
         var body: some View {
             switch DevMac.screen {
-            case "chat", "chat-live", "chat-late":
+            case "chat", "chat-live", "chat-late", "chat-ask", "chat-question":
                 NavigationStack { MadeChat(live: DevMac.screen == "chat-live", late: DevMac.screen == "chat-late") }
             case "project": NavigationStack { ProjectView(name: "orchard") }
             case "pair": PairView()
@@ -140,6 +140,46 @@ enum DevMac {
             case "mac": MacSheet()
             default: RootView()
             }
+        }
+    }
+
+    /// The made-up cards a chat waits at: `chat-ask`, leave to use a tool
+    /// with a message behind it; `chat-question`, two questions.
+    static var asks: [ChatAsk]? {
+        switch screen {
+        case "chat-ask":
+            [
+                ChatAsk(
+                    id: "a1", kind: .permission, title: "Bash",
+                    detail: "git push origin master && make self-update NOW=1"
+                ),
+                ChatAsk(
+                    id: "a2", kind: .message, title: "Message orchard · Harvest",
+                    detail: "How many crates came in on Sunday?"
+                ),
+            ]
+        case "chat-question":
+            [
+                ChatAsk(
+                    id: "q1", kind: .question, title: "Which lens should the lamp use tonight?",
+                    questions: [
+                        ChatQuestion(
+                            question: "Which lens should the lamp use tonight?", header: "Lens",
+                            options: [
+                                .init(label: "Red", description: "Easier on the eyes, shorter reach"),
+                                .init(label: "Clear", description: "Full reach, as it is now"),
+                            ],
+                            multi: false, other: true
+                        ),
+                        ChatQuestion(
+                            question: "Where should the swap be logged?", header: "Log",
+                            options: [.init(label: "LAMP.md"), .init(label: "The keeper's book")],
+                            multi: true, other: true
+                        ),
+                    ]
+                )
+            ]
+        default: nil
         }
     }
 
@@ -165,7 +205,13 @@ enum DevMac {
                 var empty = ChatFrame.sample
                 empty.items = []
                 empty.queue = []
-                let made = ChatSession(sample: late ? empty : .sample, model: model)
+                var first = late ? empty : ChatFrame.sample
+                if let asks = DevMac.asks {
+                    first.asks = asks
+                    first.queue = []
+                    first.state = .needsYou
+                }
+                let made = ChatSession(sample: first, model: model)
                 session = made
                 if late {
                     try? await Task.sleep(for: .milliseconds(700))

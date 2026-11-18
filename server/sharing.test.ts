@@ -335,6 +335,14 @@ describe("a phone's QR code", () => {
     // a phone's key reaches the chats too: through the door, to a chat
     // that isn't one
     expect((await ask("/chat?id=no-such-chat", paired.key)).status).toBe(404);
+    // and to a chat's cards, the same way
+    const atCard = await ask(
+      "/chat/answer",
+      paired.key,
+      "POST",
+      JSON.stringify({ id: "no-such-chat", ask: "a-card", allow: true }),
+    );
+    expect(atCard.status).toBe(404);
     expect((await ask("/healthz", paired.key)).status).toBe(403);
     // and hands over its notification token, as itself
     expect((await ask("/phone/push", paired.key, "POST")).status).toBe(200);

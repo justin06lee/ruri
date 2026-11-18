@@ -16,6 +16,10 @@
  *   POST /chat/stop             { id } — the running turn stopped
  *   POST /chat/draft            { id, text } — the chat's unsent prompt,
  *                               written here; every window's box takes it
+ *   POST /chat/answer           { id, ask, allow } — a card allowed or
+ *                               refused; { id, ask, answers } — a question
+ *                               answered, one { picked, other? } each;
+ *                               { id, ask, dismiss: true } — one waved away
  *   POST /sidebar               { do: "move", id, folderId?, beforeId? } or
  *                               { do: "fold", folderId, collapsed } — the
  *                               sidebar arranged, as the window's drag does
@@ -41,15 +45,23 @@ import { z } from "zod";
 import {
   CARRY_ON,
   isAccountProvider,
+  type AskAnswers,
+  type AskQuestion,
+  type AskQuestions,
   type Attachment,
   type AttachmentUpload,
+  type PermissionRequest,
+  type PhoneAnswered,
+  type PhoneAsk,
   type PhoneAttachment,
   type PhoneChatFrame,
   type PhoneChatItem,
   type PhoneQueued,
   type PhoneSent,
+  type TalkAsk,
   type TranscriptEvent,
 } from "../shared/protocol.js";
+import { questionError } from "../shared/questionInput.js";
 import { channelProject } from "./channel.js";
 import type { ClientConn, ServerContext } from "./context.js";
 import { setChatAccount, setProjectAccount } from "./handlers/accounts.js";
@@ -199,6 +211,7 @@ const CHAT_PATHS = new Set([
   "/chat/queue",
   "/chat/stop",
   "/chat/draft",
+  "/chat/answer",
   "/sidebar",
   "/project/account",
   "/chat/account",
@@ -294,6 +307,7 @@ export function phoneFrame(ctx: ServerContext, chatId: string): PhoneChatFrame |
     (request) => request.projectId === chatId && request.kind !== "component",
   );
   const queue = phoneQueue(ctx.queues.entries.get(chatId) ?? []);
+  const asks = phoneAsks(ctx, chatId);
   return {
     chat: chatId,
     name: session.title || project.name,
@@ -302,8 +316,182 @@ export function phoneFrame(ctx: ServerContext, chatId: string): PhoneChatFrame |
     queue,
     ...(queue.length && ctx.queues.held.has(chatId) ? { held: true as const } : {}),
     ...(ctx.drafts.get(chatId)?.text.trim() ? { draft: ctx.drafts.get(chatId)!.text } : {}),
+    ...(asks.length ? { asks } : {}),
     items: phoneItems(ctx.archive.events(chatId), draft),
   };
+}
+
+/* ── the cards a chat waits at ─────────────────────────────────────── */
+
+/** What a card would do, in full, is shown up to this much. */
+const ASK_CHARS = 4_000;
+/** The most a phone may type as one answer. */
+const ANSWER_MAX = 10_000;
+
+/** Whether a question's own words may be typed, as the window's card has it. */
+const typed = (q: AskQuestion) => q.allowOther !== false || q.options.length === 0;
+
+/** A card of the chat's the phone is shown — not a component to name,
+ *  which waits on no one. */
+function cardOf(ctx: ServerContext, chatId: string, id: string): PermissionRequest | undefined {
+  const request = ctx.permissions.get(id);
+  return request && request.projectId === chatId && request.kind !== "component" ? request : undefined;
+}
+
+/** One card as the phone shows it. */
+function phoneAsk(request: PermissionRequest): PhoneAsk {
+  const base = { id: request.requestId, ...(request.agent ? { byAgent: true as const } : {}) };
+  const clip = (text: string) =>
+    text.length > ASK_CHARS ? `${text.slice(0, ASK_CHARS)}\n… (cut short)` : text;
+  if (request.kind === "question") {
+    const asked = ((request.input ?? {}) as Partial<AskQuestions>).questions ?? [];
+    // a page to open and confirm, or a secret kept out of the transcript,
+    // is answered at the Mac
+    const onMac = asked.some((q) => q.secret || q.url);
+    return {
+      ...base,
+      kind: "question",
+      title: asked[0]?.question ?? "A question",
+      questions: asked.map((q) => ({
+        question: q.question,
+        header: q.header ?? "",
+        options: q.options.map((o) => ({
+          label: o.label,
+          ...(o.description ? { description: o.description } : {}),
+        })),
+        multi: q.multiSelect === true,
+        other: typed(q),
+        ...(q.required === false ? { optional: true as const } : {}),
+        ...(q.inputType === "number" || q.inputType === "integer" ? { number: true as const } : {}),
+        ...(q.hint ? { hint: q.hint } : {}),
+      })),
+      ...(onMac ? { onMac: true as const } : {}),
+    };
+  }
+  if (request.kind === "message") {
+    const ask = request.input as TalkAsk;
+    const whom = `${ask.project}${ask.title ? ` · ${ask.title}` : ""}`;
+    return {
+      ...base,
+      kind: "message",
+      title: ask.opening ? `Open ${ask.project} and message it` : `Message ${whom}`,
+      detail: clip(ask.text),
+    };
+  }
+  const input = (request.input ?? {}) as Record<string, unknown>;
+  const said =
+    typeof input["plan"] === "string"
+      ? input["plan"]
+      : typeof input["command"] === "string"
+        ? input["command"]
+        : typeof input["file_path"] === "string"
+          ? input["file_path"]
+          : JSON.stringify(request.input ?? {}, null, 2);
+  return {
+    ...base,
+    kind: "permission",
+    title: request.toolName === "ExitPlanMode" ? "Start building from this plan" : request.toolName,
+    ...(said && said !== "{}" ? { detail: clip(said) } : {}),
+  };
+}
+
+/** The cards a chat waits at, oldest first, as the phone is shown them. */
+export function phoneAsks(ctx: ServerContext, chatId: string): PhoneAsk[] {
+  return [...ctx.permissions.values()]
+    .filter((request) => request.projectId === chatId && request.kind !== "component")
+    .sort((a, b) => a.ts - b.ts)
+    .map(phoneAsk);
+}
+
+/** What a phone may say to a card. */
+export type PhoneAnswerBody = { id: string; ask: string } & (
+  { allow: boolean } | { answers: PhoneAnswered[] } | { dismiss: true }
+);
+
+/** A /chat/answer body, checked — or undefined. */
+export function readAnswerBody(body: Record<string, unknown>): PhoneAnswerBody | undefined {
+  const id = sidebarId(body["id"]);
+  const ask = sidebarId(body["ask"]);
+  if (!id || !ask) return undefined;
+  if (typeof body["allow"] === "boolean") return { id, ask, allow: body["allow"] };
+  if (body["dismiss"] === true) return { id, ask, dismiss: true };
+  const raw = body["answers"];
+  if (!Array.isArray(raw) || raw.length > 50) return undefined;
+  const answers: PhoneAnswered[] = [];
+  for (const one of raw as unknown[]) {
+    const { picked, other } = (one ?? {}) as Record<string, unknown>;
+    if (!Array.isArray(picked) || picked.length > 100 || picked.some((p) => typeof p !== "string"))
+      return undefined;
+    if (other !== undefined && (typeof other !== "string" || other.length > ANSWER_MAX)) return undefined;
+    answers.push({ picked: picked as string[], ...(typeof other === "string" ? { other } : {}) });
+  }
+  return { id, ask, answers };
+}
+
+/**
+ * The phone's answer to a card, given the way the window's card gives it
+ * (the same handlers): a tool or a message allowed or refused, a question
+ * answered or waved away. The answers are put together and checked here,
+ * as the window's card does it, so the phone only says what was picked
+ * and typed. Answers whether it was done, and if not, why in a line the
+ * phone can show.
+ */
+export function phoneAnswer(
+  ctx: ServerContext,
+  body: PhoneAnswerBody,
+): { ok: true } | { ok: false; error: string } {
+  const request = cardOf(ctx, body.id, body.ask);
+  // answered at the Mac meanwhile, or the turn moved on: the phone's
+  // picture was a beat behind
+  if (!request) return { ok: false, error: "That card is gone — it was answered or its turn moved on." };
+  if (request.kind !== "question") {
+    if (!("allow" in body)) return { ok: false, error: "This card is allowed or refused." };
+    void promptHandlers.permission_response(ctx, nobody, {
+      type: "permission_response",
+      requestId: request.requestId,
+      allow: body.allow,
+      always: false,
+    });
+    return { ok: true };
+  }
+  if ("allow" in body) return { ok: false, error: "This card asks a question." };
+  if ("dismiss" in body) {
+    void promptHandlers.question_response(ctx, nobody, {
+      type: "question_response",
+      requestId: request.requestId,
+    });
+    return { ok: true };
+  }
+  const asked = ((request.input ?? {}) as Partial<AskQuestions>).questions ?? [];
+  if (asked.some((q) => q.secret || q.url)) return { ok: false, error: "Answer this one on your Mac." };
+  if (body.answers.length !== asked.length) return { ok: false, error: "Answer each question." };
+  const answers: AskAnswers["answers"] = {};
+  const values: NonNullable<AskAnswers["values"]> = {};
+  const annotations: NonNullable<AskAnswers["annotations"]> = {};
+  for (const [i, q] of asked.entries()) {
+    const given = body.answers[i]!;
+    const words = typed(q) && given.other?.trim() ? given.other : "";
+    // only what was offered counts as picked; words of one's own stand in
+    // for the options of a question that takes one answer
+    const offered = [...new Set(given.picked)].filter((label) => q.options.some((o) => o.label === label));
+    const picked = words && !q.multiSelect ? [] : offered;
+    const chosen = [
+      ...picked.map((label) => q.options.find((o) => o.label === label)?.value ?? label),
+      ...(words ? [words] : []),
+    ];
+    const wrong = questionError(q, chosen);
+    if (wrong) return { ok: false, error: `${q.header || q.question}: ${wrong}` };
+    answers[q.question] = [...picked, ...(words ? [words] : [])].join(", ");
+    values[q.id ?? q.question] = chosen;
+    const preview = q.options.find((o) => o.label === picked[picked.length - 1])?.preview;
+    if (preview) annotations[q.question] = { preview };
+  }
+  void promptHandlers.question_response(ctx, nobody, {
+    type: "question_response",
+    requestId: request.requestId,
+    answers: { answers, values, ...(Object.keys(annotations).length ? { annotations } : {}) },
+  });
+  return { ok: true };
 }
 
 /** The user's own prompts waiting in a chat's queue, as the phone shows
@@ -659,6 +847,29 @@ export async function servePhoneChat(
     }
     phoneDraft(ctx, chat, text);
     json(res, 200, { ok: true });
+    return;
+  }
+  if (url.pathname === "/chat/answer") {
+    if (req.method !== "POST") {
+      res.writeHead(405, { allow: "POST" });
+      res.end();
+      return;
+    }
+    const parsed = await readJson(req, ANSWER_MAX * 60);
+    const body = parsed ? readAnswerBody(parsed) : undefined;
+    if (!body) {
+      json(res, 400, {
+        error: "send { id, ask, allow } or { id, ask, answers } or { id, ask, dismiss: true }",
+      });
+      return;
+    }
+    if (!reachable(ctx, body.id)) {
+      json(res, 404, { error: "no such chat" });
+      return;
+    }
+    // a card already gone is no error of the request's: the phone is told
+    // why in words
+    json(res, 200, phoneAnswer(ctx, body));
     return;
   }
   if (url.pathname === "/chat/queue" || url.pathname === "/chat/stop") {

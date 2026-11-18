@@ -2078,6 +2078,51 @@ export interface PhoneQueued {
   now?: true;
 }
 
+/** One question of a card, as the phone asks it. */
+export interface PhoneQuestion {
+  question: string;
+  /** A word or two over it ("Approach"); may be empty. */
+  header: string;
+  options: Array<{ label: string; description?: string }>;
+  /** More than one option may be picked. */
+  multi: boolean;
+  /** Words of one's own may be typed — always so with no options. */
+  other: boolean;
+  /** It may be left unanswered. */
+  optional?: true;
+  /** What is typed is a number. */
+  number?: true;
+  hint?: string;
+}
+
+/**
+ * A card a chat waits at, as the phone is shown it: leave to use a tool
+ * ("permission"), leave to message another chat ("message"), or a question
+ * to answer. POST /chat/answer answers it by `id`.
+ */
+export interface PhoneAsk {
+  id: string;
+  kind: "permission" | "message" | "question";
+  /** What is asked, on a line: "Bash", "Message orchard", the question. */
+  title: string;
+  /** What it would do, in full: the command, the file, the message's words. */
+  detail?: string;
+  /** For a question: each one, in order. */
+  questions?: PhoneQuestion[];
+  /** Asked by an agent the user started, not the chat's own model. */
+  byAgent?: true;
+  /** Not one a phone can answer — a page to open, a secret to type: it
+   *  waits for the Mac. */
+  onMac?: true;
+}
+
+/** One question's answer from the phone: the options picked, by label,
+ *  and what was typed. */
+export interface PhoneAnswered {
+  picked: string[];
+  other?: string;
+}
+
 /**
  * GET /chat answers one; GET /chat/live sends one on connect and again
  * whenever the chat changes. `items` is the chat's recent conversation,
@@ -2098,6 +2143,8 @@ export interface PhoneChatFrame {
   /** What is written in the chat's prompt box and not sent, on any device
    *  (its words; attachments stay where they were added). */
   draft?: string;
+  /** The cards the chat waits at, oldest first. */
+  asks?: PhoneAsk[];
   items?: PhoneChatItem[];
   upsert?: PhoneChatItem[];
   remove?: string[];

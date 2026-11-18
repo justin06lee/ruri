@@ -7,6 +7,7 @@ import { addAccount } from "../accounts.js";
 import { ProjectStore } from "../projects.js";
 import { accountHandlers } from "./accounts.js";
 import { createManagerHost, projectHandlers } from "./projects.js";
+import { settingHandlers } from "./settings.js";
 
 let root: string;
 /** The workspace as the disk has it, and a symlink onto it — the way
@@ -347,5 +348,68 @@ describe("the sidebar's arrangement", () => {
     expect(layout.order).toEqual([umi.id, layout.folders[0]!.id]);
     // the label was only ever the folder's: it is not kept on the project
     expect(old.list().every((p) => !("folder" in p))).toBe(true);
+  });
+});
+
+describe("the default reasoning effort", () => {
+  /** The store, and each chat a running session was told a new effort for. */
+  function world() {
+    const told: Array<[string, string]> = [];
+    const ctx = {
+      store,
+      manager: { setEffort: (id: string, effort: string) => told.push([id, effort]) },
+      clients: { broadcast: () => {} },
+    } as unknown as ServerContext;
+    return { ctx, told };
+  }
+  const lead = (name: string) => store.list().find((p) => p.name === name)!.sessions[0]!.id;
+
+  test("a chat nobody picked an effort for follows the default, when it changes too", () => {
+    const { ctx, told } = world();
+    store.add("ruri", path.join(real, "ruri"));
+    store.add("umi", path.join(real, "umi"));
+    store.setSessionSettings(lead("umi"), { effort: "max" });
+    void settingHandlers.set_default_effort(ctx, undefined as never, {
+      type: "set_default_effort",
+      effort: "high",
+    });
+    expect(store.effectiveSettings(lead("ruri"))?.effort).toBe("high");
+    // nothing is written on a project riding the default: it follows the next one too
+    expect(store.list().find((p) => p.name === "ruri")).not.toHaveProperty("effort");
+    // a pick stands, and its session is left alone
+    expect(store.effectiveSettings(lead("umi"))?.effort).toBe("max");
+    expect(told).toEqual([
+      ["home", "high"],
+      [lead("ruri"), "high"],
+    ]);
+    void settingHandlers.set_default_effort(ctx, undefined as never, {
+      type: "set_default_effort",
+      effort: "low",
+    });
+    expect(store.effectiveSettings(lead("ruri"))?.effort).toBe("low");
+    expect(new ProjectStore().effectiveSettings(lead("ruri"))?.effort).toBe("low");
+  });
+
+  test("projects an older ruri pinned at xhigh when the default changed ride the default again", () => {
+    store.add("ruri", path.join(real, "ruri"));
+    store.add("umi", path.join(real, "umi"));
+    store.add("toji", path.join(real, "toji"));
+    store.setSessionSettings(lead("umi"), { effort: "xhigh" });
+    store.setDefaultEffort("high");
+    // as that ruri left the file: the project marked, its chat not; Home too
+    const file = path.join(process.env["RURI_CONFIG_DIR"]!, "projects.json");
+    const raw = JSON.parse(fs.readFileSync(file, "utf8")) as {
+      projects: Array<{ name: string; effort?: string }>;
+      home?: { effort?: string };
+    };
+    raw.projects.find((p) => p.name === "ruri")!.effort = "xhigh";
+    raw.home = { ...raw.home, effort: "xhigh" };
+    fs.writeFileSync(file, JSON.stringify(raw));
+    const next = new ProjectStore();
+    expect(next.effectiveSettings(lead("ruri"))?.effort).toBe("high");
+    expect(next.homeSettings().effort).toBeUndefined();
+    expect(next.effectiveSettings(lead("toji"))?.effort).toBe("high");
+    // xhigh picked in the composer is on the chat as well: it stands
+    expect(next.effectiveSettings(lead("umi"))?.effort).toBe("xhigh");
   });
 });

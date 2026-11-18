@@ -22,6 +22,7 @@ import {
 } from "../shared/sidebar.js";
 import {
   DEFAULT_EFFORT,
+  HOME_ID,
   DEFAULT_MEMORY_MODEL,
   DEFAULT_PERMISSION_MODE,
   HARNESS_DEFAULT_MODEL,
@@ -156,6 +157,16 @@ export class ProjectStore {
       if (typeof raw.defaultModel === "string" && raw.defaultModel) this.defaultModelId = raw.defaultModel;
       if (typeof raw.memoryModel === "string" && raw.memoryModel) this.memoryModelId = raw.memoryModel;
       if (isEffort(raw.defaultEffort)) this.defaultEffortLevel = raw.defaultEffort;
+      // A change of default used to pin every project riding the old one
+      // to it (and Home): the built-in xhigh, on the project alone — a pick
+      // in the composer lands on a chat as well. Those were never picks,
+      // and go back to riding the default.
+      for (const project of this.projects) {
+        if (project.effort === DEFAULT_EFFORT && project.sessions.every((s) => !s.effort)) {
+          delete project.effort;
+        }
+      }
+      if (this.home.effort === DEFAULT_EFFORT && this.defaultEffortLevel) delete this.home.effort;
       if (Array.isArray(raw.knownModels))
         this.knownModels = raw.knownModels.filter((m) => typeof m === "string");
       if (typeof raw.catalogModel === "string" && raw.catalogModel) this.catalogModel = raw.catalogModel;
@@ -240,19 +251,27 @@ export class ProjectStore {
   }
 
   /**
-   * Choose the effort new chats and projects start at. As with a new
-   * default model, nothing that exists moves: every project (and Home)
-   * that was riding the old default is pinned to it first.
+   * Choose the effort a chat runs at when nobody picked one for it. Every
+   * chat riding the default rides it to the new one; a chat that picked
+   * its effort keeps its pick. (Projects riding the old default used to be
+   * pinned to it here, so a default of high left every project that
+   * existed at xhigh, and each new chat in one started there.)
    */
   setDefaultEffort(effort: string): void {
     if (!isEffort(effort)) return;
-    const was = this.defaultEffort();
-    if (effort !== was) {
-      for (const project of this.projects) if (!project.effort) project.effort = was;
-      if (!this.home.effort) this.home.effort = was;
-    }
     this.defaultEffortLevel = effort === DEFAULT_EFFORT ? undefined : effort;
     this.save();
+  }
+
+  /** The chats riding the default effort: no pick of their own, none on
+   *  their project — Home among them, by its id. */
+  ridingDefaultEffort(): string[] {
+    return [
+      ...(this.home.effort ? [] : [HOME_ID]),
+      ...this.projects.flatMap((project) =>
+        project.effort ? [] : project.sessions.filter((s) => !s.effort).map((s) => s.id),
+      ),
+    ];
   }
 
   /**

@@ -102,12 +102,13 @@ export const settingHandlers = {
     ctx.manager.setEffort(msg.projectId, msg.effort);
     ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
   },
-  // The effort new chats start at. Chats riding the old default were
-  // pinned to it by the store, so the projects go out with it — and
-  // nothing running changes.
+  // The effort a chat runs at when nobody picked one. Every chat riding
+  // the default follows it, the ones with a session running told now; a
+  // chat that picked its own is left alone.
   set_default_effort: (ctx, _ws, msg) => {
     if (ctx.store.defaultEffort() === msg.effort) return;
     ctx.store.setDefaultEffort(msg.effort);
+    for (const id of ctx.store.ridingDefaultEffort()) ctx.manager.setEffort(id, ctx.store.defaultEffort());
     ctx.clients.broadcast({ type: "default_effort", effort: ctx.store.defaultEffort() });
     ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
     ctx.clients.broadcast({ type: "home_settings", home: ctx.store.homeSettings() });

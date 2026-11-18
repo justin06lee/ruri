@@ -18,7 +18,7 @@ import {
 import { accountFor, accountOf } from "./accounts.js";
 import { layerOfFile, stacked } from "./brief.js";
 import { editedSince, noteToolRead } from "./sheetEdits.js";
-import { writeIndexFile } from "./components.js";
+import { syncIndexFile } from "./components.js";
 import { libraryAfterTurn } from "./handlers/components.js";
 import type { ServerContext } from "./context.js";
 import { HOME_ID } from "./manager.js";
@@ -334,7 +334,7 @@ function syncProjectFiles(ctx: ServerContext, channelId: string): void {
   const there = fs.existsSync(path.join(project.path, ".ruri"));
   if (blank && there) clearRuriDir(project.path);
   else if (!blank && !there) {
-    writeIndexFile(project.path, ctx.components.items(project.id));
+    syncIndexFile(ctx.components, project.id, project.path);
     pushSheet(ctx, project.id);
   }
 }

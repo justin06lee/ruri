@@ -22,7 +22,7 @@ import {
 } from "../../shared/protocol.js";
 import { channelProject, ownerProject } from "../channel.js";
 import { anchorsAt, codeSig, worktreesOf } from "../checkouts.js";
-import { type ComponentHost, writeIndexFile } from "../components.js";
+import { type ComponentHost, syncIndexFile } from "../components.js";
 import type { ServerContext } from "../context.js";
 import {
   parseRef,
@@ -225,11 +225,12 @@ export function storeShot(file: string, projectDir?: string): Attachment | undef
 }
 
 /** Push a project's component library everywhere it is read: the file in
- *  the project, Claude's skill, and every window. */
+ *  the project — after taking in what that file lists and the library
+ *  lacks (a pull brought it) — Claude's skill, and every window. */
 export function pushComponents(ctx: ServerContext, projectId: string, projectDir?: string): void {
+  if (projectDir) syncIndexFile(ctx.components, projectId, projectDir);
   const items = ctx.components.items(projectId);
   const dir = ctx.components.dir(projectId);
-  if (projectDir) writeIndexFile(projectDir, items);
   const project = ctx.store.get(projectId);
   if (project) writeLibrarySkill(projectId, project.name, items, dir);
   ctx.clients.broadcast({ type: "components", projectId, items, ...(dir ? { dir } : {}) });
@@ -551,7 +552,10 @@ export function libraryAfterTurn(ctx: ServerContext, projectId: string): void {
     void settleLibrary(ctx, projectId);
     return;
   }
-  const moved = checkLibrary(ctx, projectId);
+  // a turn that pulled or merged may have brought entries in the project's
+  // own file: taken in before the code is held up against them
+  const took = syncIndexFile(ctx.components, projectId, project.path) > 0;
+  const moved = checkLibrary(ctx, projectId) || took;
   if (moved) pushComponents(ctx, projectId, project.path);
   // the code moved, or something new has no root yet: mycelium looks again
   if (moved) {

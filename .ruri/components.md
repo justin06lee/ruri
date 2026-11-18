@@ -11,6 +11,79 @@ place, `ruri help` says the rest.
 ruri maintains this file. Don't edit it by hand; it is rewritten whenever
 the library changes.
 
+## sidebar-folders — the sidebar folders
+Folders in the left sidebar: a row with a chevron, a name and a count over the projects kept in it; click folds it, double-click renames, drag carries a project or a whole folder to another place. The order and the folders are one value the server keeps (shared/sidebar.ts) — change it only through those functions.
+Its files: web/src/components/Sidebar.tsx, shared/sidebar.ts
+Reaches into: web/src/styles.css, web/src/store.ts
+Tags: nav, sidebar, drag, folders
+
+## project-row-menu — the project row menu
+A sidebar project row's right-click (RowMenu): the grid of project drawings, the folder it is kept in (each folder, No folder, New folder), its account per harness when the harness has more than one (each with its fullest window, e.g. Fable 100%), and live components for that project — Default / On / Off.
+Its files: web/src/components/Sidebar.tsx
+Reaches into: web/src/styles.css, web/src/lib/liveComponents.ts
+Tags: menu, sidebar, context-menu
+
+## shell-pane — the shell pane
+The shell as a split along the bottom of a chat (ShellPane): tabs, the project's name, a button that puts it away, and a top edge that drags to resize. Opened with Ctrl+` or the composer's menu; a shell that exits takes its tab along, and the last one closing closes the pane.
+Its files: web/src/components/Terminal.tsx
+Reaches into: web/src/styles.css, web/src/components/ChatPane.tsx, web/src/components/Composer.tsx
+Tags: terminal, shell, split, pane
+
+## passwords-page — the passwords page
+Settings → Passwords (the Vault component): each secret as its {{handle}}, where it is kept, Edit / Forget / Move to ghostly, the add form with Generate, the line on top saying whether a ghostly vault answers — and On your tailnet (VaultDevices): the user's Tailscale devices, which serve a vault, Use this vault / Set up here, and a card under the row walking enrollment or setup step by step. Values never reach the page.
+Also called: the ghostly device picker
+Its files: web/src/components/Settings.tsx
+Reaches into: web/src/styles.css, web/src/store.ts
+Tags: settings, vault, passwords, ghostly
+
+## script-page — the script page
+A running script's page on the agents page, read like a chat you can't write in: its command, each stretch of what it printed with the time it arrived, a line for every silence between them ("printed nothing for 22s"), and at the bottom whether it is printing now or for how long it has been quiet. The times come from the server's in-memory marks (server/scriptWatch.ts); with none, the output shows whole.
+Its files: web/src/components/AgentsPage.tsx, web/src/lib/quiet.ts
+Reaches into: web/src/styles.css, web/src/components/chat/AgentCard.tsx
+Tags: agents, scripts, progress, log
+
+## phone-composer — the phone composer
+The iPhone chat's foot on Liquid Glass: queued prompts as glass cards over the field (hold one to send it now, × removes it), a UIKit text field that pastes words, pictures and files, and a solid ink arrow that sends on a tap, cuts in when held, and stops the turn when nothing is written.
+Its files: ios/Ruri/Views/Composer.swift, ios/Ruri/Views/PromptField.swift, ios/Ruri/Views/HoldButton.swift
+Reaches into: ios/Ruri/Views/Theme.swift, ios/Ruri/Views/ChatView.swift, ios/Ruri/ChatSession.swift
+Tags: ios, composer, queue, hold
+
+## account-chip — the account chip
+Beside the model picker in the prompt box: the account this chat's harness spends from, red when a window is past 90%. Its menu lists that harness's accounts with who, plan and small 5h/week/premium bars, marks the project's own; a pick is this chat's (the project's is following it), 'Make X the project's' moves the default, 'Accounts…' opens Settings → Accounts. AccountMeters (the bars) is shared with the Accounts page.
+Its files: web/src/components/AccountPicker.tsx
+Reaches into: web/src/components/SessionControls.tsx, web/src/styles.css, web/src/lib/accounts.ts
+Tags: composer, accounts, usage, dropdown
+
+## accounts-page — the accounts page
+Settings → Accounts: every Claude and Codex sign-in, each with who it is, its plan, its limit bars and how many projects run on it; Sign in opens a shell under the row with the harness's own login typed in (LoneShell), closing itself once signed in; Sign out and Remove ask twice; double-click or Rename renames; the field at the foot adds one.
+Its files: web/src/components/Accounts.tsx
+Reaches into: web/src/components/Settings.tsx, web/src/components/Terminal.tsx, web/src/styles.css, web/src/lib/accounts.ts
+Tags: settings, accounts, sign-in, usage
+
+## phone-working-now — the working now section
+The iPhone home's first section: every chat at work across projects (StatusReport.working) — a lead named by its project, a teammate as "project · name" — each a tap from its conversation; they stay in their places in the sidebar list below too.
+Its files: ios/Ruri/Views/HomeView.swift, ios/Ruri/Model/Status.swift
+Reaches into: ios/Ruri/Views/Rows.swift
+Tags: iphone, home, status, working
+
+## phone-computer-switcher — the computer switcher
+The iPhone home's masthead line under "ruri": a live dot, the shown computer's name (with its port when two share a name) and a ⌃⌄ chevron; tapping it opens a menu of every paired computer (ticked one shown) and Pair Another Computer…, which opens PairSheet. Masthead in HomeView.swift; switching is RuriModel.switchTo.
+Its files: ios/Ruri/Views/HomeView.swift
+Reaches into: ios/Ruri/RuriModel.swift, ios/Ruri/Views/PairView.swift
+Tags: iphone, menu, pairing, header
+
+## phone-computers-sheet — the computers sheet
+The iPhone's Your Mac sheet (the computer button on home): the shown computer's name, connection and pairing date; a Computers list of every paired one (tap to switch, swipe to unpair) with Pair Another Computer…; Appearance and Notifications; Unpair from <name>. Says "computer" for ruri on Linux.
+Its files: ios/Ruri/Views/MacSheet.swift
+Reaches into: ios/Ruri/Views/HomeView.swift, ios/Ruri/RuriModel.swift
+Tags: iphone, sheet, settings, pairing
+
+## phone-ask-cards — the phone cards
+The card a chat waits at, over the iPhone's prompt field (AskDock): leave to use a tool or message another chat (LeaveCard — what it would do behind a tap, Deny/Allow or Don't Send/Send It), or a question one at a time (QuestionCard — options, Other, Back/Next/Send, × to dismiss). Oldest first, with a count of the rest. Answers go through ChatSession.allow/answer/dismiss to POST /chat/answer.
+Its files: ios/Ruri/Views/AskCards.swift
+Reaches into: ios/Ruri/Views/Composer.swift, ios/Ruri/ChatSession.swift, server/phoneChat.ts
+Tags: iphone, card, permission, question
+
 ## terminal-tabs — terminal tabs
 The numbered row across the top of the composer's terminal mode — one tab per shell, plus button and cmd-T for another, cmd-1..9 to switch. The row belongs to the server and is written to ~/.config/ruri/terminals.json, so it outlives the app; the shell processes don't.
 Its files: web/src/components/Terminal.tsx

@@ -156,10 +156,20 @@ export function AskCard({ request }: { request: PermissionRequest }) {
     ) : (
       <PermissionBanner request={request} />
     );
-  if (teammate === undefined) return card;
+  // handed to an agent the user trusts (server/trusted.ts): theirs to
+  // answer all the same, and theirs outright once it has been left
+  const asked = request.asked;
+  if (teammate === undefined && !asked) return card;
   return (
     <div className="team-ask">
-      <div className="team-ask-from">from the team — {teammate}</div>
+      {teammate !== undefined && <div className="team-ask-from">from the team — {teammate}</div>}
+      {asked && (
+        <div className="team-ask-from">
+          asked of {asked.name}, which you trust to answer — yours at{" "}
+          {new Date(asked.until).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} if it
+          hasn&rsquo;t, and you can answer now
+        </div>
+      )}
       {card}
     </div>
   );

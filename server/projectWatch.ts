@@ -23,6 +23,13 @@
  * Neither fires for what the user ended themselves (Stop, a rewind), nor at
  * a launch: what was at work before it is not seen ending.
  *
+ * A stretch only other agents prompted — every turn in it started by an
+ * agent's message, none by the user (server/origin.ts) — says so on its
+ * events (`prompted`): the agent that sent the message hears how it ended
+ * through talk, and the user's phone is not told (server/phonePush.ts). A
+ * card handed to an agent the user trusts (server/trusted.ts) is not
+ * waiting on the user, and is no news until it becomes theirs.
+ *
  * Every event goes to the hooks (server/projectHooks.ts fireProjectEvent),
  * which deliver it and try again; each stretch's start goes there too
  * (projectBusy), the baseline its spend is measured from.
@@ -35,6 +42,7 @@ import type { Project, ProjectStatus, TranscriptEvent } from "../shared/protocol
 import { ownerProject } from "./channel.js";
 import type { ServerContext } from "./context.js";
 import { warn } from "./log.js";
+import { promptedBy } from "./origin.js";
 import { fireProjectEvent, projectBusy } from "./projectHooks.js";
 
 /** What midna hears about a project. Times are epoch ms. */
@@ -44,6 +52,9 @@ export type ProjectEvent =
       projectId: string;
       /** When the stretch at work that has just ended began. */
       busySince: number;
+      /** Every turn of the stretch was prompted by another agent, none by
+       *  the user. */
+      prompted?: "agent";
       at: number;
     }
   | {
@@ -58,6 +69,8 @@ export type ProjectEvent =
       text?: string;
       /** When the stretch at work it came in began, when there was one. */
       busySince?: number;
+      /** With "error": the stretch was other agents' prompts alone. */
+      prompted?: "agent";
       at: number;
     };
 
@@ -118,6 +131,9 @@ interface Stretch {
   quietSince?: number;
   /** When the user last stopped or rewound one of its chats. */
   userEnded?: number;
+  /** Whose prompts its turns were: the user's, another agent's. */
+  human?: boolean;
+  agent?: boolean;
 }
 
 /** Something a chat is waiting on the user for. */
@@ -198,7 +214,17 @@ export class ProjectWatch {
     if (status !== "working" && status !== "permission") return;
     this.questions.delete(chatId);
     const project = ownerProject(this.ctx, chatId);
-    if (project) this.busy(project.id);
+    if (!project) return;
+    this.busy(project.id);
+    // whose prompt the turn is: a stretch of agents' prompts alone is not
+    // the user's to be told of
+    const stretch = this.stretch(project.id);
+    try {
+      if (promptedBy(this.ctx, chatId).by === "agent") stretch.agent = true;
+      else stretch.human = true;
+    } catch {
+      stretch.human = true;
+    }
   }
 
   /** Something a chat started — an agent, a shell — is running. */
@@ -310,6 +336,7 @@ export class ProjectWatch {
     const busySince = stretch.busySince;
     const lastBusy = stretch.lastBusy ?? busySince;
     const byUser = stretch.userEnded !== undefined && stretch.userEnded >= lastBusy;
+    const prompted = stretch.agent && !stretch.human ? { prompted: "agent" as const } : {};
     this.stretches.set(project.id, {});
     if (byUser) return;
     // ended on a question to the user: that is what they hear, not "done"
@@ -343,11 +370,12 @@ export class ProjectWatch {
         reason: "error",
         ...(error ? { text: clip(error) } : {}),
         busySince,
+        ...prompted,
         at: now,
       });
       return;
     }
-    this.emit({ kind: "project.idle", projectId: project.id, busySince, at: now });
+    this.emit({ kind: "project.idle", projectId: project.id, busySince, ...prompted, at: now });
   }
 
   /** Whether any of a project's chats is at work, or waiting on another
@@ -388,6 +416,8 @@ export class ProjectWatch {
     for (const request of this.ctx.permissions.values()) {
       // naming a component: the model goes on, and the name comes when it comes
       if (request.kind === "component") continue;
+      // handed to an agent the user trusts: theirs only once it falls back
+      if (request.asked) continue;
       const project = ownerProject(this.ctx, request.projectId);
       if (!project) continue;
       up.add(request.requestId);

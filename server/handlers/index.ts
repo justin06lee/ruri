@@ -20,6 +20,7 @@ import { sharingHandlers } from "./sharing.js";
 import { skillHandlers } from "./skills.js";
 import { talkHandlers } from "./talk.js";
 import { teamHandlers } from "./team.js";
+import { trustedHandlers } from "./trusted.js";
 import { terminalHandlers } from "./terminal.js";
 import { transcriptHandlers } from "./transcript.js";
 import type { Handler, Handlers, MessageType } from "./types.js";
@@ -43,6 +44,7 @@ const HANDLERS: Handlers = {
   ...tasteHandlers,
   ...talkHandlers,
   ...teamHandlers,
+  ...trustedHandlers,
 };
 
 /** One message, already checked against its schema, to its handler. */

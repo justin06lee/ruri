@@ -429,6 +429,35 @@ describe("a project's team done", () => {
   });
 });
 
+describe("whose prompts a stretch was", () => {
+  const fromAgent = { agent: "site-lead", project: "site", title: "", letter: "l", reply: "none" as const, depth: 1 };
+
+  test("another agent's message alone: done is marked as an agent's, not the user's", () => {
+    const w = world();
+    w.start("lead", { from: fromAgent });
+    w.pass(SWEEP_MS);
+    w.end("lead");
+    w.pass(IDLE_AFTER_MS + SWEEP_MS);
+    expect(w.idles()).toEqual([expect.objectContaining({ projectId: "p", prompted: "agent" })]);
+  });
+
+  test("the user's prompt anywhere in it makes it theirs — and so does the next stretch on its own", () => {
+    const w = world();
+    w.start("lead", { from: fromAgent });
+    w.end("lead");
+    w.start("ui");
+    w.end("ui");
+    w.pass(IDLE_AFTER_MS + SWEEP_MS);
+    expect(w.idles()).toHaveLength(1);
+    expect(w.idles()[0]).not.toHaveProperty("prompted");
+    // marks do not carry into the stretch after
+    w.start("lead");
+    w.end("lead");
+    w.pass(IDLE_AFTER_MS + SWEEP_MS);
+    expect(w.idles()[1]).not.toHaveProperty("prompted");
+  });
+});
+
 describe("a project waiting on the user", () => {
   test("the lead ending on a question: blocked once, after a moment — and not done", () => {
     const w = world();
@@ -506,6 +535,29 @@ describe("a project waiting on the user", () => {
     expect(w.blocks()).toEqual([
       expect.objectContaining({ chatId: "ui", reason: "card", text: "a question" }),
     ]);
+  });
+
+  test("a card handed to an agent the user trusts is no news until it becomes theirs", () => {
+    const w = world();
+    const up = w.now();
+    const card = (asked?: PermissionRequest["asked"]) =>
+      w.ctx.permissions.set("c", {
+        requestId: "c",
+        projectId: "ui",
+        toolName: "Bash",
+        input: {},
+        ...(asked ? { asked } : {}),
+        ts: up,
+      });
+    w.statuses["ui"] = "permission";
+    w.watch.status("ui", "permission");
+    card({ agent: "midna", name: "midna", until: w.now() + 180_000 });
+    w.pass(BLOCKED_AFTER_MS * 4);
+    expect(w.blocks()).toEqual([]);
+    // the agent left it: the same card, the mark gone — news at once
+    card();
+    w.pass(SWEEP_MS);
+    expect(w.blocks()).toEqual([expect.objectContaining({ chatId: "ui", reason: "card", text: "Bash" })]);
   });
 
   test("a card already up at a launch was told by the run before", () => {

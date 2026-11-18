@@ -303,16 +303,19 @@ export function phoneFrame(ctx: ServerContext, chatId: string): PhoneChatFrame |
   const held = ctx.turns.gates.get(chatId);
   const draft = held?.shown ? { id: held.messageId, text: held.shown } : undefined;
   const status = ctx.manager.statuses()[chatId];
-  const waiting = [...ctx.permissions.values()].some(
+  // a card handed to an agent the user trusts waits on it, not on them:
+  // the chat is at work until the card becomes theirs
+  const cards = [...ctx.permissions.values()].filter(
     (request) => request.projectId === chatId && request.kind !== "component",
   );
+  const waiting = cards.some((request) => !request.asked) || (status === "permission" && cards.length === 0);
   const queue = phoneQueue(ctx.queues.entries.get(chatId) ?? []);
   const asks = phoneAsks(ctx, chatId);
   return {
     chat: chatId,
     name: session.title || project.name,
     project: project.name,
-    state: waiting || status === "permission" ? "needs-you" : status === "working" ? "working" : "idle",
+    state: waiting ? "needs-you" : status === "working" || status === "permission" ? "working" : "idle",
     queue,
     ...(queue.length && ctx.queues.held.has(chatId) ? { held: true as const } : {}),
     ...(ctx.drafts.get(chatId)?.text.trim() ? { draft: ctx.drafts.get(chatId)!.text } : {}),
@@ -339,7 +342,7 @@ function cardOf(ctx: ServerContext, chatId: string, id: string): PermissionReque
 }
 
 /** One card as the phone shows it. */
-function phoneAsk(request: PermissionRequest): PhoneAsk {
+export function phoneAsk(request: PermissionRequest): PhoneAsk {
   const base = { id: request.requestId, ...(request.agent ? { byAgent: true as const } : {}) };
   const clip = (text: string) =>
     text.length > ASK_CHARS ? `${text.slice(0, ASK_CHARS)}\n… (cut short)` : text;
@@ -435,10 +438,15 @@ export function readAnswerBody(body: Record<string, unknown>): PhoneAnswerBody |
  * as the window's card does it, so the phone only says what was picked
  * and typed. Answers whether it was done, and if not, why in a line the
  * phone can show.
+ *
+ * `always` is not the phone's to say: it is how an agent the user trusts
+ * allows a tool for good, as the window's Always allow does
+ * (server/handlers/trusted.ts).
  */
 export function phoneAnswer(
   ctx: ServerContext,
   body: PhoneAnswerBody,
+  always = false,
 ): { ok: true } | { ok: false; error: string } {
   const request = cardOf(ctx, body.id, body.ask);
   // answered at the Mac meanwhile, or the turn moved on: the phone's
@@ -450,7 +458,7 @@ export function phoneAnswer(
       type: "permission_response",
       requestId: request.requestId,
       allow: body.allow,
-      always: false,
+      always: always && body.allow,
     });
     return { ok: true };
   }

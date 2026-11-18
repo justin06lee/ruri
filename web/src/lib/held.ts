@@ -36,6 +36,7 @@ function keyOf(msg: ServerMessage): string | undefined {
       return `${msg.type}:${msg.projectId}`;
     case "usage":
     case "talk":
+    case "trusted":
     case "projects":
     case "models":
     case "harnesses":

@@ -91,9 +91,16 @@ function readProject(
   const standing = projectWatch(ctx).standing(project);
   const asks = new Map(standing.asks.map((ask) => [ask.chatId, ask]));
   const cards = new Map<string, number>();
+  /** Chats at a card handed to an agent the user trusts: at work, waiting
+   *  on that agent, until the card becomes the user's. */
+  const handed = new Set<string>();
   for (const request of ctx.permissions.values()) {
     // naming a component waits on no one: the model goes on
     if (request.kind === "component") continue;
+    if (request.asked) {
+      handed.add(request.projectId);
+      continue;
+    }
     const since = Math.min(request.ts || now, now);
     cards.set(request.projectId, Math.min(cards.get(request.projectId) ?? since, since));
   }
@@ -130,13 +137,13 @@ function readProject(
     const ask = asks.get(session.id);
     const error = status === "error" && !ctx.retries.has(session.id) ? lastError(events) : undefined;
     let state: StatusState;
-    if (card !== undefined || status === "permission") {
+    if (card !== undefined || (status === "permission" && !handed.has(session.id))) {
       state = "needs-you";
       need("card", hooks?.lastSummary || "A card is waiting on you", card ?? now);
     } else if (ask) {
       state = "needs-you";
       need("question", ask.text ?? "A question is waiting on you", ask.since);
-    } else if (status === "working") state = "working";
+    } else if (status === "working" || status === "permission") state = "working";
     else if (error !== undefined) {
       state = "blocked";
       need("error", trimSummary(`Stopped on an error: ${error}`, WORDS_CHARS), ended ?? now);

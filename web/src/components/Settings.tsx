@@ -9,6 +9,7 @@ import type {
 import { EFFORT_LEVELS, HOME_ID } from "../../../shared/protocol";
 import { send, setProjectLive, useRuri } from "../store";
 import { Accounts } from "./Accounts";
+import { TrustedAgents } from "./TrustedAgents";
 import { BandEditor } from "./BandEditor";
 import { Capped } from "./Capped";
 import { Icon } from "./chat/Icon";
@@ -793,6 +794,11 @@ const SETTINGS_SECTIONS = [
   { id: "devices", name: "Devices", icon: "M3 4h15v11H3zM7 19h7M10 15v4M18 9h4v12h-6v-6" },
   { id: "vault", name: "Passwords", icon: "M14 8a5 5 0 1 0 0 .1M14 8h8M18 8v4M21 8v3" },
   { id: "accounts", name: "Accounts", icon: "M12 4.4a3.6 3.6 0 1 0 0 7.2 3.6 3.6 0 0 0 0-7.2zM4.5 20a7.5 7.5 0 0 1 15 0" },
+  {
+    id: "trusted",
+    name: "Trusted agents",
+    icon: "M12 3l8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3zM12 8.2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM8.6 16a3.5 3.5 0 0 1 6.8 0",
+  },
   { id: "models", name: "Models", icon: "M4 6h16M4 12h16M4 18h16M8 3v6M16 9v6M10 15v6" },
   { id: "harnesses", name: "Harnesses", icon: "M4 5h16v14H4zM7 9l3 3-3 3M13 15h4" },
   {
@@ -1169,6 +1175,11 @@ export function Settings({ onClose }: { onClose(): void }) {
             <section className="settings-group" hidden={section !== "accounts"}>
               <h2 className="settings-group-name">Accounts</h2>
               <Accounts shown={section === "accounts"} />
+            </section>
+
+            <section className="settings-group" hidden={section !== "trusted"}>
+              <h2 className="settings-group-name">Trusted agents</h2>
+              <TrustedAgents shown={section === "trusted"} />
             </section>
 
             <section className="settings-group" hidden={section !== "models"}>

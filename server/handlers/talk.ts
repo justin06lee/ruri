@@ -33,7 +33,6 @@ import {
   leadOf,
   liaisonOf,
   type LetterFrom,
-  type PermissionRequest,
   type Project,
   type ServerMessage,
   type SessionInfo,
@@ -79,6 +78,7 @@ import {
   unattended,
   waitForSlot,
 } from "./team.js";
+import { askingTrusted, cardGone, cardsFor, isTrusted, routeCard, trustedChatsClosed } from "./trusted.js";
 import type { Handlers } from "./types.js";
 
 interface Found {
@@ -230,8 +230,10 @@ export function listSeats(ctx: ServerContext, channelId: string): string {
   if (!me) return "Only a chat in a project can message other agents.";
   const policy = ctx.talk.policy();
   const from = { chat: channelId, project: me.project.id };
-  const open = seats(ctx, channelId).filter((seat) =>
-    mayMessage(policy, from, { chat: seat.session.id, project: seat.project.id }),
+  // a chat the user trusts reaches everyone, whatever the limits say
+  const free = isTrusted(ctx, channelId);
+  const open = seats(ctx, channelId).filter(
+    (seat) => free || mayMessage(policy, from, { chat: seat.session.id, project: seat.project.id }),
   );
   const barred = seats(ctx, channelId).length - open.length;
   const offLimits =
@@ -307,14 +309,15 @@ function askUser(ctx: ServerContext, channelId: string, ask: TalkAsk): Promise<b
   return new Promise((answer) => {
     const requestId = randomUUID();
     ctx.talk.asks.set(requestId, { from: channelId, answer });
-    const request: PermissionRequest = {
+    // asked of the agent that prompted this turn, when the user trusts it
+    const request = routeCard(ctx, {
       requestId,
       projectId: channelId,
       toolName: "message_agent",
       kind: "message",
       input: ask,
       ts: Date.now(),
-    };
+    });
     ctx.permissions.set(requestId, request);
     ctx.clients.broadcast({ type: "permission_request", request });
   });
@@ -326,6 +329,7 @@ export function answerTalk(ctx: ServerContext, requestId: string, allow: boolean
   if (!ask) return false;
   ctx.talk.asks.delete(requestId);
   ctx.permissions.delete(requestId);
+  cardGone(ctx, requestId);
   ctx.clients.broadcast({ type: "permission_resolved", requestId });
   ask.answer(allow);
   return true;
@@ -381,6 +385,7 @@ export function onAJob(ctx: ServerContext, chat: string): string | undefined {
 function uninterruptible(ctx: ServerContext, chat: string): string | undefined {
   if (ctx.manager.statuses()[chat] === "permission") return "it is waiting on the user";
   if (ctx.talk.awaiting(chat)) return "it is waiting on an answer of its own";
+  if (askingTrusted(ctx, chat)) return "it is waiting on a decision it asked for";
   const owed = owedLetter(ctx, chat);
   if (owed && owed.reply !== "none") return `it is answering ${senderOf(owed)}, who is waiting on it`;
   return undefined;
@@ -405,7 +410,7 @@ export function cutOff(ctx: ServerContext, chat: string): string | undefined {
  * one reaching an idle chat whose queue is standing by (after a stop, or
  * held for the network or a limit), which keeps its place in that line.
  */
-function deliver(
+export function deliver(
   ctx: ServerContext,
   chat: string,
   text: string,
@@ -564,8 +569,12 @@ export async function sendLetter(
   const book = ctx.talk;
   const id = randomUUID();
   const base = { id, from: channelId, to: target || found.session.id, reply, text, ts: Date.now() };
+  // a chat the user trusts has the run of ruri: its messages go whatever
+  // the limits say, and without the user being asked first
+  const trusted = isTrusted(ctx, channelId);
 
   if (
+    !trusted &&
     !mayMessage(
       book.policy(),
       { chat: channelId, project: me.project.id },
@@ -593,7 +602,7 @@ export async function sendLetter(
 
   // outside bypass mode, every message waits on the user
   const mode = channelProject(ctx, channelId)?.permissionMode ?? DEFAULT_PERMISSION_MODE;
-  if (mode !== "bypassPermissions" && !args.approved) {
+  if (mode !== "bypassPermissions" && !args.approved && !trusted) {
     book.note({ ...base, status: "asking" });
     const allowed = await askUser(ctx, channelId, {
       to: target || found.session.id,
@@ -767,6 +776,7 @@ export async function askProject(
   }
   const where = open ? open.name : `${path.basename(dir)} (${dir})`;
   if (
+    !isTrusted(ctx, channelId) &&
     !mayMessage(
       ctx.talk.policy(),
       { chat: channelId, project: me.project.id },
@@ -866,6 +876,10 @@ function waitOn(ctx: ServerContext, pending: Pending, opts: WaitOptions): Promis
   if (pending.ending) return Promise.resolve(collect(ctx, pending));
   const { signal } = opts;
   const id = pending.id;
+  // a card handed to this chat while it was between two waits — the chat
+  // it waits on is at it, most likely: the wait comes back with the card
+  const cards = cardsFor(ctx, pending.from, id, opts.via);
+  if (cards) return Promise.resolve({ text: cards, letter: id, answered: false });
   return new Promise<TalkResult>((resolve) => {
     // whichever comes first — the answer, the slice's end, the call going
     // away — ends the wait, and the others find it gone
@@ -1290,6 +1304,8 @@ export function talkChatsClosed(ctx: ServerContext, chats: string[]): void {
     if (!closing.has(pending.to) || pending.ending) continue;
     settle(ctx, pending, "failed", `${whoIs(ctx, pending.to)} was closed before it answered your message.`);
   }
+  // and what they asked a trusted agent, or were handed as one
+  trustedChatsClosed(ctx, chats);
 }
 
 /**

@@ -23,6 +23,7 @@ This layer keeps each project's component library — user names, handles, code 
 - **Register and reuse a component:** agent runs ruri register --name (server/library.ts, paths read in its checkout via checkouts.ts) → the naming card or straight in (handlers/components.ts propose: bypass, or a teammate's chat) with the code's signature → later agents ruri search/show/add (copies land in their checkout; gaps reported) → after each turn and at launch checkLibrary holds signatures against the code (out of date, missing files followed, line anchors)
 - **Sweep and photograph a repo:** server/sweep.ts skims source tops, exports, CSS classes for candidates → Names proposed and written via server/components.ts index → server/shots.ts boots dev server and captures selector rectangles → Unreachable entries go to agent photo chat via server/photographer.ts prompt
 - **Skills management:** server/skills.ts scans global and project skill dirs → server/handlers/skills.ts pushes list and serves bodies → toggle moves folder to skills-off/, install/remove/update shell out to bmo
+- **A library travelling with its repo:** syncIndexFile (launch, after each turn, every pushComponents) reads .ruri/components.md back (readIndexFile) → takeIn adds entries the install lacks, takes the file's words for one changed there and untouched here (LibraryFile.listed is the base) → the file is written from the library → listedAs records the new base
 
 ## Key files
 
@@ -45,7 +46,7 @@ This layer keeps each project's component library — user names, handles, code 
 - Do not delete on skill disable: park to skills-off/ so bmo metadata and updates survive.
 - Shots cannot cover login-gated, state-dependent, or non-web UI — route those to photographer agent flow, not shots.ts.
 - Every path a session gives (files, shots, --dir) resolves against its checkout (checkoutFor), never project.path directly — teammates work in worktrees, and copies or reads in the main checkout were the bug.
-- .ruri/components.md is committed: it holds only what lasts (no picture paths, no out-of-date lines, line refs by anchor text) and is written only when it changes — volatile detail goes to the skill, ruri show and the prompt block.
+- .ruri/components.md is committed and is how the library travels: it holds only what lasts (no picture paths, no out-of-date lines, line refs by anchor text). Never write it with writeIndexFile alone: syncIndexFile takes in what the file lists first (ComponentStore.takeIn), or an install lacking entries cuts the file down to its own.
 - Whether live components is on is asked per project, never read from the setting alone: myceliumOn(ctx, project) in server/mycelium.ts — the project's own word (set_mycelium: on / off / default) over the setting in Settings. Turning it off for a project stops its play server.
 
 ## What it talks to

@@ -1157,6 +1157,16 @@ export interface TalkAsk {
   opening?: boolean;
 }
 
+/** An agent the user trusts to decide in their place (server/trusted.ts):
+ *  a project, reached at its own chat. It is handed the cards of the turns
+ *  it prompted, is who ask_trusted asks, and may see and drive every chat. */
+export interface TrustedAgent {
+  /** The project's id. */
+  project: string;
+  /** When the user registered it, epoch ms. */
+  since: number;
+}
+
 export interface ComponentProposal {
   /** What the model suggests calling it, in the user's kind of words. */
   name: string;
@@ -1675,6 +1685,12 @@ export interface PermissionRequest {
    *  than by the chat's own model — `projectId` is still the chat's. The
    *  card shows on that agent's page as well, and says whose it is. */
   agent?: string;
+  /** The card went to an agent the user trusts (server/trusted.ts) rather
+   *  than to the user: the one that prompted the turn it came up in, or the
+   *  one a chat asked with ask_trusted. The user may still answer it, but
+   *  isn't told of it until `until` (epoch ms), when it becomes theirs and
+   *  this goes. `agent` is that agent's chat, `name` what it goes by. */
+  asked?: { agent: string; name: string; until: number };
   ts: number;
 }
 
@@ -2805,6 +2821,12 @@ export type ClientMessage =
   | { type: "talk_get" }
   /** The talk page's limits, whole. */
   | { type: "talk_set"; policy: TalkPolicy }
+  /** The trusted agents page opened. Answered with `trusted`. */
+  | { type: "trusted_get" }
+  /** The projects whose chats the user trusts to decide in their place,
+   *  whole, in the order they are asked. Only a window may say so: no
+   *  agent's tool reaches this. */
+  | { type: "trusted_set"; projects: string[] }
   /** The team page opened on a project: answered with `team`, and kept
    *  up to date while it is open. */
   | { type: "team_get"; projectId: string }
@@ -2989,6 +3011,8 @@ export type ServerMessage =
   | { type: "component_play"; projectId: string; url?: string; error?: string }
   /** Who may message whom, and the latest messages between agents. */
   | { type: "talk"; policy: TalkPolicy; letters: TalkLetter[] }
+  /** The agents the user trusts to decide in their place. */
+  | { type: "trusted"; agents: TrustedAgent[] }
   /** A project's team as it stands: its members, its liaison once an
    *  outside agent has written, the layers of its stack no member holds
    *  yet, and how many are at work across ruri. */

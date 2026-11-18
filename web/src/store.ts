@@ -18,6 +18,7 @@ import {
   type Integrations,
   type TalkLetter,
   type TalkPolicy,
+  type TrustedAgent,
   type TeamAction,
   type TeamBudget,
   type HooksView,
@@ -558,6 +559,9 @@ interface RuriState {
   /** Who may message whom, and the latest messages between agents (the
    *  talk page, server/talk.ts) — asked for on every connect. */
   talk: { policy: TalkPolicy; letters: TalkLetter[] } | null;
+  /** The projects whose chats decide in the user's place (Settings →
+   *  Trusted agents, server/trusted.ts) — asked for on every connect. */
+  trusted: TrustedAgent[];
   /** Each project's team, as the team page last heard it — asked for when
    *  the page opens, and kept up to date while it is (server/team.ts). */
   team: Record<
@@ -756,6 +760,7 @@ export const useRuri = create<RuriState>((set) => ({
   harnessesChecking: false,
   integrations: null,
   talk: null,
+  trusted: [],
   team: {},
   pluginsFound: null,
   integrationNote: null,
@@ -1911,6 +1916,7 @@ export function connect(): void {
         flushOutbox();
         // who may message whom: the talk page, and the header's count
         send({ type: "talk_get" });
+        send({ type: "trusted_get" });
         // a new connection knows nothing of what is on screen
         lastView = "";
         sendView();
@@ -2475,6 +2481,10 @@ function apply(msg: ServerMessage): void {
       break;
     case "talk": {
       setState({ talk: { policy: msg.policy, letters: msg.letters } });
+      break;
+    }
+    case "trusted": {
+      setState({ trusted: msg.agents });
       break;
     }
     case "team": {

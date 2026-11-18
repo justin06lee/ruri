@@ -639,6 +639,9 @@ export class PhonePush {
 export function noticeFor(ctx: ServerContext, event: ProjectEvent): Notice | undefined {
   const project: Project | undefined = ctx.store.get(event.projectId);
   if (!project || project.hidden) return undefined;
+  // work only other agents prompted: the agent that asked hears how it
+  // ended, and the phone is not told
+  if (event.prompted === "agent") return undefined;
   if (event.kind === "project.idle") {
     const lead = leadOf(project);
     const line = lead ? oneLine(lastSummary(ctx, lead.id, ctx.archive.events(lead.id))) : "";

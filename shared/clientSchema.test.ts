@@ -273,6 +273,8 @@ const samples: { [K in ClientMessage["type"]]: Extract<ClientMessage, { type: K 
   sharing_forget: { type: "sharing_forget", deviceId: "a1b2c3" },
   sharing_allow_send: { type: "sharing_allow_send", deviceId: "a1b2c3" },
   talk_get: { type: "talk_get" },
+  trusted_get: { type: "trusted_get" },
+  trusted_set: { type: "trusted_set", projects: ["p1", "p2"] },
   talk_set: {
     type: "talk_set",
     policy: {

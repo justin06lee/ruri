@@ -19,6 +19,7 @@ import { cliEnv, skillDir } from "./library.js";
 import { HOME_ID, managerExtras } from "./manager.js";
 import { carryLetter, sweepTalk, talkHost, talkTurnEnded } from "./handlers/talk.js";
 import { teamHost, teamStatus } from "./handlers/team.js";
+import { cardGone, isTrusted, routeCard, trustedHost, trustedTurnEnded } from "./handlers/trusted.js";
 import { ParagraphGate } from "./paragraphs.js";
 import { projectWatch } from "./projectWatch.js";
 import {
@@ -42,6 +43,13 @@ import {
   teamTools,
   type Head,
 } from "./team.js";
+import {
+  ASK_TRUSTED_TOOLS,
+  TRUSTED_TOOLS,
+  trustedBriefing,
+  trustedHttpBriefing,
+  trustedTools,
+} from "./trusted.js";
 import type { AgentOptions } from "@justin06lee/yagami";
 import { contextWindow, pushContexts, pushWork } from "./turns.js";
 import {
@@ -159,6 +167,9 @@ export function createChatManager(ctx: ServerContext): SessionManager {
           // a message from another agent that started this turn is answered
           // by it — read before the next prompt (a microtask away) lands
           talkTurnEnded(ctx, projectId, event);
+          // what it asked a trusted agent goes with its turn, and a card
+          // handed to it meanwhile reaches it now
+          trustedTurnEnded(ctx, projectId);
         }
       },
       onCompacted: (projectId, info) => noteSelfCompaction(ctx, projectId, info),
@@ -210,12 +221,18 @@ export function createChatManager(ctx: ServerContext): SessionManager {
       onPermission: (raw) => {
         // PreToolUse hooks run before the approval, so the input reaching
         // here may already hold a real vault value — the card shows handles
-        const request: PermissionRequest = { ...raw, input: ctx.secrets.redactInput(raw.input) };
+        // a card of a turn an agent the user trusts prompted is asked of
+        // that agent first (server/handlers/trusted.ts)
+        const request: PermissionRequest = routeCard(ctx, {
+          ...raw,
+          input: ctx.secrets.redactInput(raw.input),
+        });
         ctx.permissions.set(request.requestId, request);
         ctx.clients.broadcast({ type: "permission_request", request });
       },
       onPermissionResolved: (requestId) => {
         ctx.permissions.delete(requestId);
+        cardGone(ctx, requestId);
         ctx.clients.broadcast({ type: "permission_resolved", requestId });
       },
       onQuestionLate: (requestId) => {
@@ -281,6 +298,18 @@ export function createChatManager(ctx: ServerContext): SessionManager {
               : undefined;
       const role = head ?? "member";
       const talkEndpoint = `http://127.0.0.1:${ctx.listeningPort}/talk/${project.id}`;
+      // a chat the user trusts to decide in their place is told so, and
+      // holds the tools that go with it; every chat can ask one
+      const trusted = !!owner && isTrusted(ctx, project.id);
+      const trust = !owner
+        ? ""
+        : claude
+          ? trusted
+            ? trustedBriefing()
+            : ""
+          : leadOf(owner)?.id === project.id || !plain
+            ? trustedHttpBriefing(talkEndpoint, trusted)
+            : "";
       const team = !owner
         ? ""
         : plain
@@ -316,13 +345,18 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         // (with no team, the other projects' chats are in reach: Claude
         // is told in the project chat's brief, with the tools; any other
         // harness's project chat here, over HTTP)
-        talk: plain
-          ? owner && !claude && leadOf(owner)?.id === project.id
-            ? talkHttpBriefing(talkEndpoint, httpWaitMs(harness), false, true)
-            : ""
-          : claude
-            ? talkToolBriefing(!!head)
-            : talkHttpBriefing(talkEndpoint, httpWaitMs(harness), !!head),
+        talk: [
+          plain
+            ? owner && !claude && leadOf(owner)?.id === project.id
+              ? talkHttpBriefing(talkEndpoint, httpWaitMs(harness), false, true)
+              : ""
+            : claude
+              ? talkToolBriefing(!!head)
+              : talkHttpBriefing(talkEndpoint, httpWaitMs(harness), !!head),
+          trust,
+        ]
+          .filter(Boolean)
+          .join("\n"),
         team,
         // how full its context is, and compacting itself: the same words
         // in every session, the figures riding in with each prompt
@@ -355,6 +389,7 @@ export function createChatManager(ctx: ServerContext): SessionManager {
           ...(plain ? PLAIN_TALK_TOOLS : TALK_TOOLS),
           ...(owner ? CONTEXT_TOOLS : []),
           ...(head ? TEAM_TOOLS : []),
+          ...(owner ? [...ASK_TRUSTED_TOOLS, ...TRUSTED_TOOLS] : []),
         ],
         options: {
           // a teammate's routine work thinks less than its lead (team.ts)
@@ -378,6 +413,7 @@ export function createChatManager(ctx: ServerContext): SessionManager {
                 : talkTools(talkHost(ctx), project.id, !!head)),
               ...(owner ? contextTools(ctx, project.id) : []),
               ...(head ? teamTools(teamHost(ctx), project.id) : []),
+              ...(owner ? trustedTools(trustedHost(ctx), project.id, trusted) : []),
             ]),
             bridge: bridgeTools(ctx.options.bridge, bridgeCtx),
           },

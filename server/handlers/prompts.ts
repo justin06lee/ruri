@@ -32,6 +32,7 @@ import { splitQueued, wantsSplit } from "../promptSplit.js";
 import { storeAttachments, storeUpload } from "../uploads.js";
 import { followCrew } from "./crew.js";
 import { answerTalk, onAJob, talkDropped } from "./talk.js";
+import { answerTrustedAsk } from "./trusted.js";
 import type { Handler, Handlers } from "./types.js";
 
 type SentAs = Extract<ServerMessage, { type: "sent" }>["as"];
@@ -426,6 +427,9 @@ export const promptHandlers = {
     // the answers go into it; if it has moved on (the turn ended, or the
     // CLI gave up on the hook), they go out as a prompt of their own —
     // never into a hole.
+    // a chat's question for whoever the user trusts: ruri's own card, and
+    // this is the user answering it themselves
+    if (answerTrustedAsk(ctx, msg.requestId, msg.answers)) return;
     const request = ctx.permissions.get(msg.requestId);
     let outcome = ctx.manager.respondQuestion(msg.requestId, msg.answers);
     if (outcome === "none") outcome = ctx.crewManager.respondQuestion(msg.requestId, msg.answers);

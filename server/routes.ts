@@ -16,6 +16,15 @@ import type { ServerContext } from "./context.js";
 import { libraryHost } from "./handlers/components.js";
 import { askProject, httpWaitFor, listSeats, sendLetter, waitAnswer } from "./handlers/talk.js";
 import { teamHost } from "./handlers/team.js";
+import {
+  answerCard,
+  askTrusted,
+  isTrusted,
+  listCards,
+  readChat,
+  speaksOverHttp,
+  stopChat,
+} from "./handlers/trusted.js";
 import { runLibrary } from "./library.js";
 import { MEMORY_HELP, runMemoryCommand } from "./memoryCli.js";
 import { errorMessage, isMissing, warn } from "./log.js";
@@ -151,6 +160,14 @@ async function serveTalkCall(
     reply(404, { ok: false, error: "no such chat" });
     return;
   }
+  // a chat's id is all this door asks for, and an id can be read off the
+  // disk: a chat the user trusts to answer cards in their place is never
+  // spoken for here when it holds ruri's tools itself, which no other
+  // process can call
+  if (isTrusted(ctx, id) && !speaksOverHttp(ctx, id)) {
+    reply(403, { ok: false, error: "this chat holds ruri's tools itself: it is not spoken for over HTTP" });
+    return;
+  }
   let body: {
     do?: unknown;
     to?: unknown;
@@ -171,6 +188,16 @@ async function serveTalkCall(
     id?: unknown;
     hard?: unknown;
     file?: unknown;
+    question?: unknown;
+    options?: unknown;
+    ask?: unknown;
+    card?: unknown;
+    allow?: unknown;
+    always?: unknown;
+    answers?: unknown;
+    dismiss?: unknown;
+    chat?: unknown;
+    last?: unknown;
   };
   try {
     body = JSON.parse(await readBody(req, 256 * 1024)) as typeof body;
@@ -246,6 +273,57 @@ async function serveTalkCall(
     return;
   }
   const waiting = { via: "http" as const, waitMs: httpWaitFor(ctx, id), signal: gone.signal };
+  // whoever the user trusts to decide in their place (server/trusted.ts):
+  // any chat asks, and a trusted chat sees and answers cards, reads a chat
+  // and stops a turn — the same calls as the tools
+  if (body?.do === "trusted") {
+    const options = list(body.options);
+    const question = str(body.question) ?? str(body.message);
+    const ask = str(body.ask);
+    reply(200, {
+      ok: true,
+      ...(await askTrusted(
+        ctx,
+        id,
+        { ...(question ? { question } : {}), ...(options ? { options } : {}), ...(ask ? { ask } : {}) },
+        waiting,
+      )),
+    });
+    return;
+  }
+  if (body?.do === "cards") {
+    reply(200, { ok: true, text: listCards(ctx, id) });
+    return;
+  }
+  if (body?.do === "answer" && str(body.card)) {
+    const answers = Array.isArray(body.answers)
+      ? (body.answers as unknown[]).map((one) => {
+          const { picked, other } = (one ?? {}) as Record<string, unknown>;
+          const chosen = list(picked);
+          return { ...(chosen ? { picked: chosen } : {}), ...(typeof other === "string" ? { other } : {}) };
+        })
+      : undefined;
+    reply(200, {
+      ok: true,
+      text: answerCard(ctx, id, {
+        card: str(body.card)!,
+        ...(typeof body.allow === "boolean" ? { allow: body.allow } : {}),
+        ...(body.always === true ? { always: true } : {}),
+        ...(answers ? { answers } : {}),
+        ...(body.dismiss === true ? { dismiss: true } : {}),
+      }),
+    });
+    return;
+  }
+  if (body?.do === "read" && str(body.chat)) {
+    const last = typeof body.last === "number" ? body.last : undefined;
+    reply(200, { ok: true, text: readChat(ctx, id, { chat: str(body.chat)!, ...(last ? { last } : {}) }) });
+    return;
+  }
+  if (body?.do === "stop" && str(body.chat)) {
+    reply(200, { ok: true, text: stopChat(ctx, id, { chat: str(body.chat)! }) });
+    return;
+  }
   if (body?.do === "add") {
     const layers = list(body.layers);
     const model = str(body.model);

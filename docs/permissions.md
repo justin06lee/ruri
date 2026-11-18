@@ -30,6 +30,8 @@ Builds are now signed with a stable identity instead. `make identity` creates, o
 
 It is idempotent: an identity already in the keychain is left alone. `make build` runs it first (a refused keychain prompt falls back to an ad-hoc build rather than stopping), then builds with `CSC_NAME="ruri dev"`, `hardenedRuntime: false` and no notarization — there is no Apple developer account behind this app, so the bundle is not notarized and Gatekeeper is not involved (it is installed by `make`, never downloaded). `make install` and `make update` do not touch the grants.
 
+**With a Developer ID.** When the keychain holds a `Developer ID Application` certificate, `make build` signs with that instead (hardened runtime, a secure timestamp), then `scripts/notarize.sh` sends the bundle to Apple and staples the ticket, so it opens on any Mac with no "Open Anyway". The script signs in to Apple with the notarytool keychain profile `notary` when there is one (`xcrun notarytool store-credentials notary`, `NOTARY_PROFILE` names another). Otherwise it uses the App Store Connect API key the iPhone app's TestFlight upload uses (`~/.appstoreconnect/private_keys/AuthKey_<id>.p8`; `ASC_KEY_ID`, `ASC_ISSUER` and `ASC_KEY` point elsewhere). With neither it says so and the build stays signed but not notarized. `NOTARIZE=0 make build` skips it.
+
 Check a build with:
 
 ```sh

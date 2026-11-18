@@ -50,7 +50,7 @@ function QueuedCard({
   };
   /** There is another card to carry this one past. */
   movable?: boolean;
-  /** The pointer is down on it and holding: it goes when the line fills. */
+  /** The pointer is down on it and holding: it goes when the card has filled. */
   holding?: boolean;
   /** This card is a fold made a moment ago, and this takes it back. */
   onUndo?: () => void;
@@ -102,6 +102,8 @@ function QueuedCard({
       onPointerUp={pressed ? onLift!.up : undefined}
       onPointerCancel={pressed ? onLift!.cancel : undefined}
     >
+      {/* the hold, filling the card from the left as the phone's does */}
+      {pressed && <span className="queued-hold" aria-hidden />}
       <div className="queued-head">
         <span className="queued-label">
           {item.editing
@@ -193,8 +195,10 @@ function QueuedCard({
  *
  * Press a card and hold still, and it is sent now: the running turn stops
  * and that prompt goes in its place — what holding Enter does to the one
- * in the composer, for as long (CUT_IN_HOLD_MS), with a line filling
- * along the card meanwhile. Letting go early, or moving, is not a send.
+ * in the composer, for as long (CUT_IN_HOLD_MS), with the card filling
+ * from its left edge meanwhile, as a queued prompt does on the phone
+ * (ios/Ruri/Views/HoldButton.swift). Letting go early, or moving, is not a
+ * send: the fill runs back out.
  */
 export function QueuedList({
   projectId,

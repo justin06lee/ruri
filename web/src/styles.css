@@ -8459,31 +8459,45 @@ button.stop:hover {
   background: var(--paper-dim);
 }
 
-/* held down: a line fills along its foot for as long as the hold takes
-   (Queue.tsx, CUT_IN_HOLD_MS), and at the end of it the prompt is sent now.
-   It starts a beat late, so a click is not a flash of it. */
-.queued-card.holding {
-  background: color-mix(in srgb, var(--accent) 7%, var(--paper-dim));
+/* held down: the card fills from its left edge for as long as the hold
+   takes (Queue.tsx, CUT_IN_HOLD_MS — the 600ms here), its words dimmed
+   while the pointer is down, and at the end of it the prompt is sent now.
+   Let go early and the fill runs back out. The same hold a queued prompt
+   has on the phone (ios/Ruri/Views/HoldButton.swift, Composer.swift). */
+.queued-card {
+  isolation: isolate;
 }
 
-.queued-card.holding::after {
+.queued-hold {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.queued-hold::before {
   content: "";
   position: absolute;
-  left: 16px;
-  right: 16px;
-  bottom: 5px;
-  height: 2px;
-  border-radius: 1px;
-  background: var(--accent);
+  inset: 0;
+  background: var(--fill);
   transform-origin: left center;
   transform: scaleX(0);
-  animation: queued-hold 480ms linear 120ms forwards;
+  transition: transform 150ms ease-out;
 }
 
-@keyframes queued-hold {
-  to {
-    transform: scaleX(1);
-  }
+.queued-card.holding .queued-hold::before {
+  transform: scaleX(1);
+  transition: transform 600ms linear;
+}
+
+.queued-card > :not(.queued-hold) {
+  transition: opacity 150ms ease-out;
+}
+
+.queued-card.holding > :not(.queued-hold) {
+  opacity: 0.7;
 }
 
 /* out of the line while it is rewritten in the composer */

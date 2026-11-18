@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { writeJsonAtomic } from "./atomic.js";
@@ -9,7 +9,15 @@ import type { ComponentProposal, Attachment, NamedComponent } from "../shared/pr
 import { isMissing, warn } from "./log.js";
 import { removeRuriFile, ruriDir } from "./ruriDir.js";
 import { componentStale } from "../shared/protocol.js";
-import { entryLines, isUiEntry, libraryListing, splitFiles, slugify, uniqueSlug } from "./library.js";
+import {
+  entryLines,
+  isUiEntry,
+  libraryListing,
+  parseRef,
+  splitFiles,
+  slugify,
+  uniqueSlug,
+} from "./library.js";
 import { storedFilePath } from "./uploads.js";
 
 /**
@@ -65,13 +73,26 @@ function names(item: NamedComponent): string[] {
  *  newest first, with when the picture and note were current; 4: what the
  *  code said when they were), and when its entries were first held up
  *  against their code that way (`checked` — until then, a turn's edits
- *  were taken for changes, and git is asked once which really were). */
+ *  were taken for changes, and git is asked once which really were).
+ *  `listed` is what the project's own file said of each entry, by handle,
+ *  when this install last wrote it or took it in (takeIn). */
 interface LibraryFile {
   items?: NamedComponent[];
   sweptAt?: number;
   dir?: string;
   version?: number;
   checked?: number;
+  listed?: Record<string, string>;
+}
+
+/** An entry as the project's file words it. */
+function listedText(item: NamedComponent): string {
+  return entryLines(item, "file").join("\n");
+}
+
+/** Those words, short enough to keep one per entry. */
+function listedSig(text: string): string {
+  return createHash("sha1").update(text).digest("hex").slice(0, 16);
 }
 
 const VERSION = 4;
@@ -133,6 +154,9 @@ export class ComponentStore {
   /** When each project's entries were first held up against their code
    *  (LibraryFile.checked). */
   private readonly checkedAt = new Map<string, number>();
+  /** What each project's own file said of each entry when this install
+   *  last wrote it or took it in (LibraryFile.listed). */
+  private readonly based = new Map<string, Record<string, string>>();
 
   private load(projectId: string): NamedComponent[] {
     let items = this.data.get(projectId);
@@ -155,6 +179,7 @@ export class ComponentStore {
       if (typeof raw.sweptAt === "number") this.swept.set(projectId, raw.sweptAt);
       if (typeof raw.dir === "string" && raw.dir) this.dirs.set(projectId, raw.dir);
       if (typeof raw.checked === "number") this.checkedAt.set(projectId, raw.checked);
+      if (raw.listed && typeof raw.listed === "object") this.based.set(projectId, raw.listed);
       if ((raw.version ?? 1) < VERSION) {
         // An index of names becomes a library of interface. What was named
         // but is no part of the interface — a server module, a pipeline —
@@ -216,6 +241,7 @@ export class ComponentStore {
       const sweptAt = this.swept.get(projectId);
       const dir = this.dirs.get(projectId);
       const checked = this.checkedAt.get(projectId);
+      const listed = this.based.get(projectId);
       writeJsonAtomic(
         path.join(componentsDir(), `${projectId}.json`),
         {
@@ -224,6 +250,7 @@ export class ComponentStore {
           ...(sweptAt ? { sweptAt } : {}),
           ...(dir ? { dir } : {}),
           ...(checked ? { checked } : {}),
+          ...(listed ? { listed } : {}),
         } satisfies LibraryFile,
         2,
       );
@@ -827,8 +854,132 @@ export class ComponentStore {
     this.save(projectId);
   }
 
+  /**
+   * Take in what the project's own file lists (`.ruri/components.md`,
+   * which a project commits). The library kept here is this machine's; the
+   * file is how it travels — to a clone, to another machine, or back to
+   * this one after its own was lost.
+   *
+   *  - An entry the library doesn't have is added, as the file words it.
+   *    Pictures don't travel, so it arrives without one.
+   *  - One the file has changed since this install last wrote or read it,
+   *    and that wasn't changed here meanwhile, takes the file's words.
+   *  - One changed here stands, and so does one taken out here: nothing
+   *    comes back for still being in a file this install was about to
+   *    rewrite, and nothing is ever taken out for being absent from it.
+   *
+   * `lineOf` says which line of a file holds a text now — the file names
+   * the places an entry reaches by what is on the line. Answers how many
+   * entries it added or changed.
+   */
+  takeIn(
+    projectId: string,
+    listed: ListedEntry[],
+    lineOf: (file: string, text: string) => number | undefined,
+  ): number {
+    const items = this.load(projectId);
+    const base = this.based.get(projectId) ?? {};
+    const placed = (reaches: ListedEntry["uses"]) => {
+      const uses: string[] = [];
+      const anchors: Record<string, string> = {};
+      for (const { ref, anchor } of reaches) {
+        if (anchor === undefined) {
+          if (!uses.includes(ref)) uses.push(ref);
+          continue;
+        }
+        // the line its text is on now; a text gone from the file keeps a
+        // place of its own until it is found again (libraryRefresh reanchor)
+        const file = parseRef(ref).path;
+        let line = lineOf(file, anchor) ?? 1;
+        while (uses.includes(`${file}:${line}`)) line++;
+        uses.push(`${file}:${line}`);
+        anchors[`${file}:${line}`] = anchor;
+      }
+      return { uses, anchors };
+    };
+    const write = (item: NamedComponent, theirs: ListedEntry) => {
+      const { uses, anchors } = placed(theirs.uses);
+      item.name = theirs.name;
+      item.note = theirs.note;
+      item.aliases = theirs.aliases;
+      item.files = theirs.files;
+      const set = <K extends "root" | "selector" | "uses" | "anchors" | "installs" | "tags" | "deps">(
+        key: K,
+        value: NamedComponent[K] | undefined,
+      ) => {
+        if (value === undefined) delete item[key];
+        else item[key] = value;
+      };
+      set("root", theirs.root);
+      set("selector", theirs.selector);
+      set("uses", uses.length ? uses : undefined);
+      set("anchors", Object.keys(anchors).length ? anchors : undefined);
+      set("installs", theirs.installs.length ? theirs.installs : undefined);
+      set("tags", theirs.tags.length ? theirs.tags : undefined);
+      set("deps", theirs.deps.length ? theirs.deps : undefined);
+      // what its code says where these words were written isn't known here:
+      // the next check takes the code as it stands
+      item.noteAt = Date.now();
+      delete item.noteSig;
+      delete item.missing;
+    };
+    let changed = 0;
+    for (const theirs of listed) {
+      const ours = items.find((item) => item.slug === theirs.slug);
+      const was = base[theirs.slug];
+      if (!ours) {
+        // in the file as this install last left it, and not in the library:
+        // taken out here since, and about to leave the file too
+        if (was !== undefined) continue;
+        // the same thing under another handle here stays as it is here
+        if (items.some((item) => item.name.toLowerCase() === theirs.name.toLowerCase())) continue;
+        const item: NamedComponent = {
+          id: randomUUID(),
+          name: theirs.name,
+          slug: theirs.slug,
+          aliases: [],
+          files: [],
+          note: "",
+          shots: [],
+          // a name in the project's own file is one somebody kept
+          confirmed: true,
+          ts: Date.now(),
+        };
+        write(item, theirs);
+        items.push(item);
+        changed++;
+        continue;
+      }
+      const mine = listedText(ours);
+      if (mine === theirs.text || was === undefined) continue;
+      if (listedSig(mine) !== was || listedSig(theirs.text) === was) continue;
+      write(ours, theirs);
+      ours.updated = Date.now();
+      changed++;
+    }
+    if (changed) this.save(projectId);
+    return changed;
+  }
+
+  /** The project's file now says what the library does: what later
+   *  readings of it are held against (takeIn). */
+  listedAs(projectId: string): void {
+    const now = Object.fromEntries(
+      this.load(projectId).map((item) => [item.slug, listedSig(listedText(item))]),
+    );
+    const before = this.based.get(projectId);
+    const same =
+      before !== undefined &&
+      Object.keys(before).length === Object.keys(now).length &&
+      Object.entries(now).every(([slug, sig]) => before[slug] === sig);
+    if (same) return;
+    this.based.set(projectId, now);
+    this.save(projectId);
+  }
+
   removeProject(projectId: string): void {
     this.data.delete(projectId);
+    this.based.delete(projectId);
     try {
       fs.rmSync(path.join(componentsDir(), `${projectId}.json`), { force: true });
     } catch (err) {
@@ -840,6 +991,148 @@ export class ComponentStore {
   all(projectIds: Iterable<string>): Record<string, NamedComponent[]> {
     return Object.fromEntries([...projectIds].map((id) => [id, this.items(id)]));
   }
+}
+
+/* ── the project's file, read back ────────────────────────────────── */
+
+/** One entry as `.ruri/components.md` lists it — entryLines' "file" view,
+ *  read back. */
+export interface ListedEntry {
+  slug: string;
+  name: string;
+  note: string;
+  aliases: string[];
+  root?: string;
+  files: string[];
+  /** The places it reaches: a path, with a line when the file gives one,
+   *  or with the text on the line meant. */
+  uses: Array<{ ref: string; anchor?: string }>;
+  installs: string[];
+  tags: string[];
+  deps: string[];
+  selector?: string;
+  /** Its lines as the file has them. */
+  text: string;
+}
+
+/** The lines entryLines ends an entry with, in the order it writes them. */
+const LISTED_LINES = [
+  ["Also called: ", "aliases"],
+  ["Starts at: ", "root"],
+  ["Its files: ", "files"],
+  ["Reaches into: ", "uses"],
+  ["Copies installed at: ", "installs"],
+  ["Tags: ", "tags"],
+  ["Needs packages: ", "deps"],
+  ["On screen: ", "selector"],
+] as const;
+
+/** "a.css (at `.card {`), b.tsx:12, c.ts" → each place, and the text on
+ *  its line when the file gives it (which may hold commas of its own). */
+function readReaches(text: string): ListedEntry["uses"] {
+  const out: ListedEntry["uses"] = [];
+  let rest = text;
+  while (rest) {
+    const comma = rest.indexOf(", ");
+    const at = rest.indexOf(" (at `");
+    if (at >= 0 && (comma < 0 || at < comma)) {
+      // its text ends at the "`)" that ends the place: the line's last
+      // word, or the one before the next ", "
+      const from = at + 6;
+      let close = rest.indexOf("`)", from);
+      while (close >= 0 && close + 2 !== rest.length && !rest.startsWith(", ", close + 2))
+        close = rest.indexOf("`)", close + 1);
+      if (close >= 0) {
+        out.push({ ref: rest.slice(0, at).trim(), anchor: rest.slice(from, close) });
+        rest = rest.slice(close + 2).replace(/^, /, "");
+        continue;
+      }
+    }
+    out.push({ ref: (comma < 0 ? rest : rest.slice(0, comma)).trim() });
+    rest = comma < 0 ? "" : rest.slice(comma + 2);
+  }
+  return out.filter((place) => place.ref);
+}
+
+/** Every entry `.ruri/components.md` lists. What isn't an entry — the
+ *  words over them, anything a person wrote in — is passed over. */
+export function readIndexFile(text: string): ListedEntry[] {
+  const out: ListedEntry[] = [];
+  // an entry runs from its heading to the next one's
+  for (const part of text.split(/^(?=## )/m)) {
+    const lines = part.replace(/\s+$/, "").split("\n");
+    const head = /^## (\S+) — (.+)$/.exec(lines[0] ?? "");
+    if (!head) continue;
+    // read from the foot: the lines it ends with come in one order, and
+    // whatever stands over them is its note, which may say anything
+    const said: Partial<Record<(typeof LISTED_LINES)[number][1], string>> = {};
+    let end = lines.length;
+    let last = LISTED_LINES.length - 1;
+    while (end > 1 && last >= 0) {
+      const line = lines[end - 1]!;
+      let found = last;
+      while (found >= 0 && !line.startsWith(LISTED_LINES[found]![0])) found--;
+      if (found < 0) break;
+      said[LISTED_LINES[found]![1]] = line.slice(LISTED_LINES[found]![0].length);
+      last = found - 1;
+      end--;
+    }
+    const list = (value: string | undefined) =>
+      (value ?? "")
+        .split(", ")
+        .map((word) => word.trim())
+        .filter(Boolean);
+    out.push({
+      slug: head[1]!,
+      name: head[2]!.trim(),
+      note: lines.slice(1, end).join("\n").trim(),
+      aliases: list(said.aliases),
+      ...(said.root?.trim() ? { root: said.root.trim() } : {}),
+      files: list(said.files),
+      uses: readReaches(said.uses ?? ""),
+      installs: list(said.installs),
+      tags: list(said.tags),
+      deps: list(said.deps),
+      ...(said.selector?.trim() ? { selector: said.selector.trim() } : {}),
+      text: lines.join("\n"),
+    });
+  }
+  return out;
+}
+
+/**
+ * Bring a project's file and this install's library in line: what the file
+ * lists that the library should have is taken in first (ComponentStore
+ * takeIn), then the file is written from the library. So a clone opens
+ * with the library its project committed, and an install that has none of
+ * it doesn't write the file down to the little it has. Answers how many
+ * entries the library took in.
+ */
+export function syncIndexFile(store: ComponentStore, projectId: string, projectDir: string): number {
+  let took = 0;
+  try {
+    const text = fs.readFileSync(path.join(projectDir, ".ruri", "components.md"), "utf8");
+    const read = new Map<string, string[] | null>();
+    took = store.takeIn(projectId, readIndexFile(text), (file, wanted) => {
+      if (!read.has(file)) {
+        let lines: string[] | null = null;
+        try {
+          lines = fs.readFileSync(path.join(projectDir, file), "utf8").split("\n");
+        } catch (err) {
+          if (!isMissing(err)) warn("components", err, "syncIndexFile");
+        }
+        read.set(file, lines);
+      }
+      const at = read.get(file)?.findIndex((line) => line.trim() === wanted) ?? -1;
+      return at < 0 ? undefined : at + 1;
+    });
+  } catch (err) {
+    if (!isMissing(err)) warn("components", err, "syncIndexFile");
+  }
+  // only a file that now says what the library does is one to hold the
+  // next reading against
+  if (writeIndexFile(projectDir, store.items(projectId))) store.listedAs(projectId);
+  return took;
 }
 
 /**
@@ -854,14 +1147,16 @@ export class ComponentStore {
  *
  * An empty library removes the file rather than leaving an empty one
  * behind — a stale list is worse than none — and a project that is still
- * blank gets no file at all (server/ruriDir.ts).
+ * blank gets no file at all (server/ruriDir.ts). Answers whether the
+ * project now holds what the library says: false when it couldn't be
+ * written.
  */
-export function writeIndexFile(projectDir: string, items: NamedComponent[]): void {
+export function writeIndexFile(projectDir: string, items: NamedComponent[]): boolean {
   try {
     const dir = items.length > 0 ? ruriDir(projectDir) : undefined;
     if (!dir) {
       removeRuriFile(projectDir, "components.md");
-      return;
+      return true;
     }
     const body = [
       "# Component library",
@@ -888,9 +1183,11 @@ export function writeIndexFile(projectDir: string, items: NamedComponent[]): voi
       if (!isMissing(err)) warn("components", err, "writeIndexFile");
     }
     if (before !== body) fs.writeFileSync(file, body);
+    return true;
   } catch (err) {
     warn("components", err, "writeIndexFile");
     // a read-only project directory is not worth failing a save over
+    return false;
   }
 }
 

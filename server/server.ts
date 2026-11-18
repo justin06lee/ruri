@@ -25,7 +25,7 @@ import { createChatManager } from "./chats.js";
 import { createCheckpoints } from "./checkpoints.js";
 import { Clients } from "./clients.js";
 import { DigestFolder, refreshArchivedTurnFiles, removeTurnFiles } from "./compaction.js";
-import { ComponentStore, writeIndexFile } from "./components.js";
+import { ComponentStore, syncIndexFile } from "./components.js";
 import { configPath } from "./configDir.js";
 import type { PendingComponent, RuriServer, ServerContext, StartServerOptions } from "./context.js";
 import { DraftStore } from "./drafts.js";
@@ -127,7 +127,9 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   // the `ruri` command every session finds on its PATH (server/library.ts)
   installCli();
   for (const project of store.list()) {
-    writeIndexFile(project.path, components.items(project.id));
+    // what the project's own file lists is taken in first: a clone, or an
+    // install whose library was lost, opens with what the project committed
+    syncIndexFile(components, project.id, project.path);
     writeLibrarySkill(project.id, project.name, components.items(project.id), components.dir(project.id));
     // briefs used to be kept per session; a project's brief is the project's
     for (const session of project.sessions) briefs.move(session.id, project.id);

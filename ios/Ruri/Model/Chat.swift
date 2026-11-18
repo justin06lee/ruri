@@ -62,6 +62,83 @@ struct ChatQueued: Codable, Hashable, Sendable, Identifiable {
     var now: Bool?
 }
 
+/// One question of a card, as the Mac asks it of the phone
+/// (shared/protocol.ts PhoneQuestion).
+struct ChatQuestion: Codable, Hashable, Sendable {
+    struct Option: Codable, Hashable, Sendable {
+        var label: String
+        var description: String?
+    }
+
+    var question: String
+    /// A word or two over it; may be empty.
+    var header: String
+    var options: [Option]
+    /// More than one option may be picked.
+    var multi: Bool
+    /// Words of one's own may be typed.
+    var other: Bool
+    /// It may be left unanswered.
+    var optional: Bool?
+    /// What is typed is a number.
+    var number: Bool?
+    var hint: String?
+}
+
+/// A card the chat waits at: leave to use a tool, leave to message another
+/// chat, or a question (shared/protocol.ts PhoneAsk).
+struct ChatAsk: Codable, Hashable, Sendable, Identifiable {
+    enum Kind: String, Codable, Sendable {
+        case permission
+        case message
+        case question
+
+        init(from decoder: Decoder) throws {
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            self = Kind(rawValue: raw) ?? .permission
+        }
+    }
+
+    var id: String
+    var kind: Kind
+    /// What is asked, on a line.
+    var title: String
+    /// What it would do, in full.
+    var detail: String?
+    var questions: [ChatQuestion]?
+    /// Asked by an agent the user started, not the chat's own model.
+    var byAgent: Bool?
+    /// Not one a phone can answer: it waits for the Mac.
+    var onMac: Bool?
+}
+
+/// One question's answer: the options picked, by label, and what was typed.
+struct ChatAnswered: Codable, Hashable, Sendable {
+    var picked: [String] = []
+    var other: String?
+
+    /// Whether anything was picked or typed.
+    var given: Bool {
+        !picked.isEmpty || !(other ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+/// What POST /chat/answer carries: a card allowed or refused, a question
+/// answered, or one waved away.
+struct AnswerBody: Encodable, Sendable {
+    var id: String
+    var ask: String
+    var allow: Bool?
+    var answers: [ChatAnswered]?
+    var dismiss: Bool?
+}
+
+/// What POST /chat/answer answers: done, or why not, in words to show.
+struct AnswerResult: Decodable, Sendable {
+    var ok: Bool
+    var error: String?
+}
+
 /// How the chat stands.
 enum ChatState: String, Codable, Sendable {
     case working
@@ -85,6 +162,8 @@ struct ChatFrame: Codable, Sendable {
     var held: Bool?
     /// What is written in the chat's prompt box and not sent, on any device.
     var draft: String?
+    /// The cards the chat waits at, oldest first.
+    var asks: [ChatAsk]?
     var items: [ChatItem]?
     var upsert: [ChatItem]?
     var remove: [String]?
@@ -120,6 +199,8 @@ struct ChatLog: Equatable, Sendable {
     var held = false
     /// What is written in the chat's prompt box and not sent, on any device.
     var draft = ""
+    /// The cards the chat waits at, oldest first.
+    var asks: [ChatAsk] = []
     private(set) var items: [ChatItem] = []
 
     /// Take one frame: the whole list replaces what is held; otherwise what
@@ -132,6 +213,7 @@ struct ChatLog: Equatable, Sendable {
         queue = frame.queue
         held = frame.held ?? false
         draft = frame.draft ?? ""
+        asks = frame.asks ?? []
         if let whole = frame.items {
             items = whole
             return

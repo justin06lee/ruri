@@ -51,6 +51,9 @@ final class ChatSession {
     private(set) var hurried: Set<String> = []
     /// Queued prompts this phone has just asked the Mac to take out.
     private(set) var dropped: Set<String> = []
+    /// Cards this phone has just answered, until the Mac's next word says
+    /// they are gone.
+    private(set) var answered: Set<String> = []
     /// Something asked of the Mac that it couldn't do, in words to show.
     var problem: String?
     /// When the prompt box was last typed in here: words from another device
@@ -166,6 +169,43 @@ final class ChatSession {
         let waiting = Set(log.queue.map(\.id))
         if !hurried.isSubset(of: waiting) { hurried.formIntersection(waiting) }
         if !dropped.isSubset(of: waiting) { dropped.formIntersection(waiting) }
+        let asked = Set(log.asks.map(\.id))
+        if !answered.isSubset(of: asked) { answered.formIntersection(asked) }
+    }
+
+    // MARK: the cards it waits at
+
+    /// The cards still to answer: those the Mac holds, less the ones just
+    /// answered from here.
+    var asks: [ChatAsk] { log.asks.filter { !answered.contains($0.id) } }
+
+    /// Allow what a card asks leave for, or refuse it.
+    func allow(_ ask: ChatAsk, _ allow: Bool) {
+        say(ask, AnswerBody(id: chat, ask: ask.id, allow: allow))
+    }
+
+    /// Answer a card's questions, one answer each, in order.
+    func answer(_ ask: ChatAsk, _ answers: [ChatAnswered]) {
+        say(ask, AnswerBody(id: chat, ask: ask.id, answers: answers))
+    }
+
+    /// Wave a question away, unanswered.
+    func dismiss(_ ask: ChatAsk) {
+        say(ask, AnswerBody(id: chat, ask: ask.id, dismiss: true))
+    }
+
+    /// Give a card its answer: it leaves the screen at once, and comes back
+    /// with the Mac's reason should the Mac not take it.
+    private func say(_ ask: ChatAsk, _ body: AnswerBody) {
+        guard !made, !answered.contains(ask.id) else { return }
+        answered.insert(ask.id)
+        act(undo: { self.answered.remove(ask.id) }) { client, address, port in
+            let result = try await client.answer(body, at: address, port: port)
+            guard !result.ok else { return }
+            // a card that is gone is no trouble: the next frame drops it
+            if self.log.asks.contains(where: { $0.id == ask.id }) { self.answered.remove(ask.id) }
+            self.problem = result.error ?? "Your Mac didn't take that answer."
+        }
     }
 
     // MARK: sending

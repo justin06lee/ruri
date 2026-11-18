@@ -374,6 +374,26 @@ final class MacClient: Sendable {
         try await act(["id": chat], to: "/chat/stop", at: address, port: port)
     }
 
+    /// Answer a card a chat waits at: allow or refuse it, answer its
+    /// questions, or wave it away. The Mac says why when it won't take it.
+    func answer(_ body: AnswerBody, at address: String, port: Int) async throws -> AnswerResult {
+        var request = try request(address, port: port, path: "/chat/answer", timeout: 15)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try JSONEncoder().encode(body)
+        let (data, response) = try await session.data(for: request, delegate: pinned)
+        switch (response as? HTTPURLResponse)?.statusCode {
+        case 200: return (try? JSONDecoder().decode(AnswerResult.self, from: data)) ?? AnswerResult(ok: true)
+        case 401: throw MacError.notPaired
+        // a ruri from before the phone could answer cards refuses the path
+        case 403, 405: throw MacError.outdated
+        case 404:
+            let said = (try? JSONDecoder().decode(Refusal.self, from: data).error) ?? ""
+            throw said == "no such chat" ? MacError.noChat : MacError.outdated
+        default: throw MacError.unreachable
+        }
+    }
+
     /// A small POST about a chat, answered { ok }. A Mac whose ruri is from
     /// before the phone could do this refuses the path: outdated.
     @discardableResult

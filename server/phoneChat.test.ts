@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
   CARRY_ON,
+  type AskAnswers,
+  type AskQuestion,
   type LetterFrom,
+  type PermissionRequest,
   type PhoneChatFrame,
   type Project,
   type ProjectStatus,
@@ -12,6 +15,8 @@ import { moveInLayout, setFolder, type SidebarLayout } from "../shared/sidebar.j
 import type { ClientConn, ServerContext } from "./context.js";
 import {
   nextFrame,
+  phoneAnswer,
+  phoneAsks,
   phoneDraft,
   phoneItems,
   phoneQueue,
@@ -19,6 +24,7 @@ import {
   phoneAccount,
   phoneSidebar,
   phoneStop,
+  readAnswerBody,
   readQueueBody,
   readSendBody,
   readSidebarBody,
@@ -448,5 +454,248 @@ describe("a prompt box the same on every device", () => {
     expect(w.told.map((t) => t.to)).toEqual(["a", "b"]);
     phoneDraft(w.ctx, "c", "from the train");
     expect(w.told.length).toBe(2);
+  });
+});
+
+describe("the phone at a card", () => {
+  const CHAT = "chat";
+  const card = (id: string, extra: Partial<PermissionRequest>): PermissionRequest => ({
+    requestId: id,
+    projectId: CHAT,
+    toolName: "Bash",
+    input: {},
+    ts: at,
+    ...extra,
+  });
+  const approach: AskQuestion = {
+    question: "Which approach?",
+    header: "Approach",
+    options: [
+      { label: "Rewrite", description: "from scratch", value: "rewrite", preview: "new.ts" },
+      { label: "Patch", description: "the smallest change" },
+    ],
+    multiSelect: false,
+  };
+  const surfaces: AskQuestion = {
+    question: "Which surfaces?",
+    header: "Surfaces",
+    options: [
+      { label: "Web", description: "" },
+      { label: "Phone", description: "" },
+    ],
+    multiSelect: true,
+  };
+
+  /** A server with cards up: what each answer handler was handed. */
+  function world(cards: PermissionRequest[]) {
+    const permissions = new Map(cards.map((c) => [c.requestId, c]));
+    const allowed: Array<{ id: string; allow: boolean; always: boolean }> = [];
+    const answered: Array<{ id: string; answers: AskAnswers | undefined }> = [];
+    const talked: Array<{ id: string; allow: boolean }> = [];
+    const ctx = {
+      permissions,
+      talk: {
+        asks: new Map(
+          cards
+            .filter((c) => c.kind === "message")
+            .map((c) => [
+              c.requestId,
+              { answer: (allow: boolean) => talked.push({ id: c.requestId, allow }) },
+            ]),
+        ),
+      },
+      manager: {
+        respondPermission: (id: string, allow: boolean, always: boolean) =>
+          allowed.push({ id, allow, always }),
+        respondQuestion: (id: string, answers: AskAnswers | undefined) => {
+          answered.push({ id, answers });
+          return "answered";
+        },
+      },
+      crewManager: { respondPermission: () => {}, respondQuestion: () => "none" },
+      clients: { broadcast: () => {} },
+    } as unknown as ServerContext;
+    return { ctx, allowed, answered, talked };
+  }
+
+  test("it is shown what each card asks — a tool, a message, a question — and never a component to name", () => {
+    const { ctx } = world([
+      card("q", {
+        kind: "question",
+        toolName: "AskUserQuestion",
+        input: { questions: [approach, surfaces] },
+        ts: at + 2,
+      }),
+      card("p", { input: { command: "rm -rf dist" }, agent: "a1", ts: at }),
+      card("m", {
+        kind: "message",
+        toolName: "message_agent",
+        input: { to: "c2", project: "orchard", title: "Harvest", text: "How many crates?", reply: "wait" },
+        ts: at + 1,
+      }),
+      card("n", { kind: "component", input: { name: "the bar", files: [], note: "" } }),
+      card("elsewhere", { projectId: "another chat" }),
+    ]);
+    const asks = phoneAsks(ctx, CHAT);
+    expect(asks.map((a) => a.id)).toEqual(["p", "m", "q"]);
+    expect(asks[0]).toEqual({
+      id: "p",
+      kind: "permission",
+      title: "Bash",
+      detail: "rm -rf dist",
+      byAgent: true,
+    });
+    expect(asks[1]).toEqual({
+      id: "m",
+      kind: "message",
+      title: "Message orchard · Harvest",
+      detail: "How many crates?",
+    });
+    expect(asks[2]).toMatchObject({ kind: "question", title: "Which approach?" });
+    expect(asks[2]!.questions).toEqual([
+      {
+        question: "Which approach?",
+        header: "Approach",
+        options: [
+          { label: "Rewrite", description: "from scratch" },
+          { label: "Patch", description: "the smallest change" },
+        ],
+        multi: false,
+        other: true,
+      },
+      {
+        question: "Which surfaces?",
+        header: "Surfaces",
+        options: [{ label: "Web" }, { label: "Phone" }],
+        multi: true,
+        other: true,
+      },
+    ]);
+  });
+
+  test("a plan to start building, and a question only the Mac can take", () => {
+    const { ctx } = world([
+      card("plan", { toolName: "ExitPlanMode", input: { plan: "1. Build it" } }),
+      card("secret", {
+        kind: "question",
+        input: {
+          questions: [{ question: "The key?", header: "", options: [], multiSelect: false, secret: true }],
+        },
+        ts: at + 1,
+      }),
+    ]);
+    const [plan, secret] = phoneAsks(ctx, CHAT);
+    expect(plan).toMatchObject({ title: "Start building from this plan", detail: "1. Build it" });
+    expect(secret).toMatchObject({ kind: "question", onMac: true });
+    expect(
+      phoneAnswer(ctx, { id: CHAT, ask: "secret", answers: [{ picked: [], other: "hunter2" }] }),
+    ).toEqual({
+      ok: false,
+      error: "Answer this one on your Mac.",
+    });
+  });
+
+  test("a body allows, answers or waves away", () => {
+    expect(readAnswerBody({ id: "c", ask: "p", allow: false })).toEqual({ id: "c", ask: "p", allow: false });
+    expect(readAnswerBody({ id: "c", ask: "p", dismiss: true })).toEqual({
+      id: "c",
+      ask: "p",
+      dismiss: true,
+    });
+    expect(readAnswerBody({ id: "c", ask: "p", answers: [{ picked: ["A"], other: "b", more: 1 }] })).toEqual({
+      id: "c",
+      ask: "p",
+      answers: [{ picked: ["A"], other: "b" }],
+    });
+    expect(readAnswerBody({ id: "c", ask: "p" })).toBeUndefined();
+    expect(readAnswerBody({ id: "c", allow: true })).toBeUndefined();
+    expect(readAnswerBody({ id: "c", ask: "p", answers: [{ picked: [1] }] })).toBeUndefined();
+    expect(
+      readAnswerBody({ id: "c", ask: "p", answers: [{ picked: [], other: "x".repeat(10_001) }] }),
+    ).toBeUndefined();
+  });
+
+  test("a tool is allowed or refused the way the window's card does it, once, never for always", () => {
+    const { ctx, allowed } = world([card("p", { input: { command: "ls" } })]);
+    expect(phoneAnswer(ctx, { id: CHAT, ask: "p", allow: true })).toEqual({ ok: true });
+    expect(phoneAnswer(ctx, { id: CHAT, ask: "p", allow: false })).toEqual({ ok: true });
+    expect(allowed).toEqual([
+      { id: "p", allow: true, always: false },
+      { id: "p", allow: false, always: false },
+    ]);
+  });
+
+  test("a message is let go or held back", () => {
+    const { ctx, talked, allowed } = world([
+      card("m", {
+        kind: "message",
+        input: { to: "c2", project: "orchard", title: "", text: "hi", reply: "none" },
+      }),
+    ]);
+    expect(phoneAnswer(ctx, { id: CHAT, ask: "m", allow: true })).toEqual({ ok: true });
+    expect(talked).toEqual([{ id: "m", allow: true }]);
+    expect(allowed).toEqual([]);
+  });
+
+  test("a question's answers are put together as the window's card puts them", () => {
+    const { ctx, answered } = world([
+      card("q", { kind: "question", input: { questions: [approach, surfaces] } }),
+    ]);
+    expect(
+      phoneAnswer(ctx, {
+        id: CHAT,
+        ask: "q",
+        answers: [{ picked: ["Rewrite", "Not offered"] }, { picked: ["Web", "Phone"], other: "the watch" }],
+      }),
+    ).toEqual({ ok: true });
+    expect(answered).toEqual([
+      {
+        id: "q",
+        answers: {
+          answers: { "Which approach?": "Rewrite", "Which surfaces?": "Web, Phone, the watch" },
+          values: { "Which approach?": ["rewrite"], "Which surfaces?": ["Web", "Phone", "the watch"] },
+          annotations: { "Which approach?": { preview: "new.ts" } },
+        },
+      },
+    ]);
+    // words of one's own stand in for the options of a one-answer question
+    phoneAnswer(ctx, {
+      id: CHAT,
+      ask: "q",
+      answers: [{ picked: ["Patch"], other: "neither" }, { picked: ["Web"] }],
+    });
+    expect(answered[1]!.answers!.answers).toEqual({ "Which approach?": "neither", "Which surfaces?": "Web" });
+  });
+
+  test("an answer that won't do is refused in words, and nothing is sent", () => {
+    const { ctx, answered } = world([
+      card("q", { kind: "question", input: { questions: [approach, surfaces] } }),
+    ]);
+    expect(phoneAnswer(ctx, { id: CHAT, ask: "q", answers: [{ picked: ["Patch"] }] })).toEqual({
+      ok: false,
+      error: "Answer each question.",
+    });
+    expect(
+      phoneAnswer(ctx, { id: CHAT, ask: "q", answers: [{ picked: ["Patch"] }, { picked: [] }] }),
+    ).toEqual({
+      ok: false,
+      error: "Surfaces: An answer is required.",
+    });
+    expect(phoneAnswer(ctx, { id: CHAT, ask: "q", allow: true })).toMatchObject({ ok: false });
+    expect(answered).toEqual([]);
+    // waved away: the card's own handler, with no answers
+    expect(phoneAnswer(ctx, { id: CHAT, ask: "q", dismiss: true })).toEqual({ ok: true });
+    expect(answered).toEqual([{ id: "q", answers: undefined }]);
+  });
+
+  test("a card that is gone, another chat's, or a component's is not answered", () => {
+    const { ctx, allowed } = world([
+      card("theirs", { projectId: "another chat" }),
+      card("n", { kind: "component", input: { name: "x", files: [], note: "" } }),
+    ]);
+    for (const ask of ["gone", "theirs", "n"]) {
+      expect(phoneAnswer(ctx, { id: CHAT, ask, allow: true })).toMatchObject({ ok: false });
+    }
+    expect(allowed).toEqual([]);
   });
 });

@@ -31,6 +31,7 @@ struct Composer: View {
 
     var body: some View {
         VStack(spacing: 8) {
+            AskDock(session: session)
             QueueDock(session: session)
             if let problem = session.problem {
                 Notice(text: problem) { session.problem = nil }

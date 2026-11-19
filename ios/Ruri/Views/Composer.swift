@@ -77,6 +77,8 @@ struct Composer: View {
             )
             HStack(spacing: 10) {
                 AttachButton(picking: attachments)
+                // the model this chat runs on, where the Mac's box has it
+                ModelMenu(chat: session.chat)
                 Spacer(minLength: 0)
                 if working, !empty {
                     Text("Hold to send now")

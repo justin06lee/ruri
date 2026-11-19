@@ -169,6 +169,7 @@ describe("a key scoped to the status", () => {
       ["/sidebar", "POST"],
       ["/project/account", "POST"],
       ["/chat/account", "POST"],
+      ["/chat/model", "POST"],
       ["/phone/push", "POST"],
       ["/phone/push/settings", "POST"],
     ] as const) {

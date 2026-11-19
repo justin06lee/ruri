@@ -29,6 +29,10 @@
  *   POST /chat/account          { id, provider, account? } — one chat on an
  *                               account of its own, or (no account) back
  *                               on its project's, as the account chip does
+ *   POST /chat/model            { id, model?, effort? } — one chat put on a
+ *                               model from the status report's `models`,
+ *                               and/or a reasoning level that model takes,
+ *                               as the prompt box's pickers do
  *
  * What the phone is shown is what the user reads in the web app: their
  * prompts and the replies in full, tool calls folded into one line of
@@ -67,6 +71,7 @@ import type { ClientConn, ServerContext } from "./context.js";
 import { setChatAccount, setProjectAccount } from "./handlers/accounts.js";
 import { projectHandlers } from "./handlers/projects.js";
 import { promptHandlers } from "./handlers/prompts.js";
+import { settingHandlers } from "./handlers/settings.js";
 import { warn } from "./log.js";
 import type { QueueEntry } from "./queue.js";
 import { readBody } from "./sharing.js";
@@ -204,6 +209,49 @@ export function phoneAccount(ctx: ServerContext, projectId: string, account: str
   return setProjectAccount(ctx, project.id, account);
 }
 
+/**
+ * The phone's model menu: one chat put on a model the catalog lists, or
+ * told a reasoning level, the way the prompt box's pickers do it — the
+ * chat's own pick, every window seeing it at once, a running turn left to
+ * finish on what it started with.
+ *
+ * A level is only one the model takes. And a chat moved onto a model that
+ * does not take the level it was on goes to that model's own: the window
+ * does the same the moment it shows the chat, and a chat the phone moved
+ * may run before any window has.
+ */
+export function phoneModel(
+  ctx: ServerContext,
+  chat: string,
+  pick: { model?: string; effort?: string },
+): { ok: true } | { ok: false; error: string } {
+  const catalog = ctx.models.allModels();
+  const settings = ctx.store.effectiveSettings(chat);
+  if (!settings) return { ok: false, error: "That chat is gone." };
+  const model = catalog.find((m) => m.value === (pick.model ?? settings.model));
+  if (pick.model !== undefined && !model)
+    return { ok: false, error: "This computer doesn't list that model." };
+  const levels = model?.reasoningEfforts?.map((effort) => effort.value) ?? [];
+  if (pick.effort !== undefined && !levels.includes(pick.effort)) {
+    return {
+      ok: false,
+      error: levels.length ? "That model doesn't take that level." : "That model has no reasoning levels.",
+    };
+  }
+  if (pick.model !== undefined) {
+    void settingHandlers.set_model(ctx, nobody, { type: "set_model", projectId: chat, model: pick.model });
+  }
+  const effort =
+    pick.effort ??
+    (pick.model !== undefined && levels.length > 0 && !levels.includes(settings.effort)
+      ? (model?.defaultEffort ?? levels[0])
+      : undefined);
+  if (effort !== undefined) {
+    void settingHandlers.set_effort(ctx, nobody, { type: "set_effort", projectId: chat, effort });
+  }
+  return { ok: true };
+}
+
 const CHAT_PATHS = new Set([
   "/chat",
   "/chat/live",
@@ -215,6 +263,7 @@ const CHAT_PATHS = new Set([
   "/sidebar",
   "/project/account",
   "/chat/account",
+  "/chat/model",
 ]);
 
 /** Whether a request is for a chat, the phone's way. */
@@ -834,6 +883,29 @@ export async function servePhoneChat(
       return;
     }
     json(res, 200, { ok: setChatAccount(ctx, chat, provider, named) });
+    return;
+  }
+  if (url.pathname === "/chat/model") {
+    if (req.method !== "POST") {
+      res.writeHead(405, { allow: "POST" });
+      res.end();
+      return;
+    }
+    const parsed = await readJson(req, 4096);
+    const chat = sidebarId(parsed?.["id"]);
+    const model = parsed?.["model"];
+    const effort = parsed?.["effort"];
+    const named = (value: unknown): value is string | undefined =>
+      value === undefined || (typeof value === "string" && value.length > 0 && value.length <= 200);
+    if (!chat || !named(model) || !named(effort) || (model === undefined && effort === undefined)) {
+      json(res, 400, { error: "send { id, model?, effort? }" });
+      return;
+    }
+    if (!reachable(ctx, chat)) {
+      json(res, 404, { error: "no such chat" });
+      return;
+    }
+    json(res, 200, phoneModel(ctx, chat, { ...(model ? { model } : {}), ...(effort ? { effort } : {}) }));
     return;
   }
   if (url.pathname === "/chat/draft") {

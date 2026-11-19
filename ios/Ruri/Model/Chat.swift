@@ -280,6 +280,14 @@ struct ChatAccountBody: Encodable, Sendable {
     var account: String?
 }
 
+/// What POST /chat/model carries: the model a chat goes on, the reasoning
+/// level it is asked for, or both.
+struct ChatModelBody: Encodable, Sendable {
+    var id: String
+    var model: String?
+    var effort: String?
+}
+
 /// What POST /chat/queue and /chat/stop answer.
 struct DoneAnswer: Decodable, Sendable {
     var ok: Bool

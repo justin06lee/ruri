@@ -221,6 +221,47 @@ final class RuriModel {
         }
     }
 
+    /// Put one chat on a model, tell it a reasoning level, or both — here at
+    /// once, then on the Mac, where every window follows. Moved onto a
+    /// model that doesn't take the level it was on, it goes to that model's
+    /// own, as the Mac does. Should the Mac refuse, the next picture puts
+    /// it back.
+    func setChatModel(_ picked: StatusModel? = nil, effort: String? = nil, for chat: String) {
+        guard picked != nil || effort != nil,
+              let project = report?.project(holding: chat),
+              let at = report?.projects.firstIndex(where: { $0.name == project.name }) else { return }
+        let mark = { (one: inout StatusChat) in
+            guard one.id == chat else { return }
+            if let picked {
+                one.model = picked.id
+                one.effort = picked.effort(keeping: effort ?? one.effort)
+            } else if let effort {
+                one.effort = effort
+            }
+        }
+        if var lead = report?.projects[at].lead {
+            mark(&lead)
+            report?.projects[at].lead = lead
+        }
+        for index in report?.projects[at].team.indices ?? 0..<0 {
+            if var member = report?.projects[at].team[index] {
+                mark(&member)
+                report?.projects[at].team[index] = member
+            }
+        }
+        guard client != nil else { return }
+        Task {
+            do {
+                let (client, address, port) = try await line()
+                if try await !client.chatModel(picked?.id, effort: effort, chat: chat, at: address, port: port) {
+                    await refresh()
+                }
+            } catch {
+                await refresh()
+            }
+        }
+    }
+
     /// Run one chat on an account of its own — here at once, then on the
     /// Mac. Picking its project's account is following the project again.
     func setChatAccount(_ account: StatusAccount, for chat: String) {

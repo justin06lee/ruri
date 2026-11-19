@@ -54,6 +54,10 @@ struct StatusChat: Codable, Hashable, Sendable {
     /// The account it runs each harness on — its own, or its project's —
     /// by harness (with ?ids=1).
     var accounts: [String: String]?
+    /// The model it runs on — a `StatusModel.id` — and the reasoning level
+    /// it is asked for, from a Mac that says (with ?ids=1).
+    var model: String?
+    var effort: String?
 }
 
 /// Something waiting on the user.
@@ -118,6 +122,38 @@ struct StatusAccount: Codable, Hashable, Sendable, Identifiable {
     var signedIn: Bool?
     /// Who it is signed in as: an email.
     var who: String?
+}
+
+/// A model a chat can be put on, as the Mac's catalog lists it.
+struct StatusModel: Codable, Hashable, Sendable, Identifiable {
+    /// What the Mac knows it by: "claude-fable-5-2", "codex:gpt-5.6-sol".
+    var id: String
+    var name: String
+    /// Who serves it — "Claude", "Codex", "OpenCode" — or, for one running
+    /// on the Mac itself, what runs it: "Ollama".
+    var provider: String
+    /// The harness it runs on ("claude", "codex", "opencode"): whose
+    /// accounts a chat on it spends from.
+    var harness: String?
+    /// It runs on the Mac itself: no account, no limits.
+    var local: Bool?
+    /// The reasoning levels it takes, lowest first; none when it has none.
+    var efforts: [String]?
+    /// The level a chat moved onto it goes to, when its own is not one.
+    var defaultEffort: String?
+
+    /// The level a chat on this model runs at, coming from `effort`: its
+    /// own while the model takes it, else the model's.
+    func effort(keeping effort: String?) -> String? {
+        guard let efforts, !efforts.isEmpty else { return effort }
+        if let effort, efforts.contains(effort) { return effort }
+        return defaultEffort ?? efforts.first
+    }
+
+    /// A level as the menu says it: "High", "XHigh".
+    static func word(_ effort: String) -> String {
+        effort == "xhigh" ? "XHigh" : effort.prefix(1).uppercased() + effort.dropFirst()
+    }
 }
 
 /// One harness's limits, as the Mac's gauges read them: percent used.
@@ -228,6 +264,9 @@ struct StatusReport: Codable, Hashable, Sendable {
     /// With ?ids=1, from a Mac that has them: every account a project can
     /// be put on.
     var accounts: [StatusAccount]?
+    /// With ?ids=1, from a Mac that says: the models a chat can be put on —
+    /// the ones its own picker offers, and whatever a chat is on now.
+    var models: [StatusModel]?
 
     func project(named name: String) -> StatusProject? {
         projects.first { $0.name == name }
@@ -258,6 +297,26 @@ struct StatusReport: Codable, Hashable, Sendable {
     func chat(_ id: String) -> StatusChat? {
         guard let project = project(holding: id) else { return nil }
         return project.lead?.id == id ? project.lead : project.team.first { $0.id == id }
+    }
+
+    /// The model a chat runs on, when the Mac lists it.
+    func model(of chat: String) -> StatusModel? {
+        guard let id = self.chat(chat)?.model else { return nil }
+        return models?.first { $0.id == id }
+    }
+
+    /// The models by who serves them, each lot in the Mac's order, the lots
+    /// in the order their first model comes.
+    var modelGroups: [(provider: String, local: Bool, models: [StatusModel])] {
+        var groups: [(provider: String, local: Bool, models: [StatusModel])] = []
+        for model in models ?? [] {
+            if let at = groups.firstIndex(where: { $0.provider == model.provider }) {
+                groups[at].models.append(model)
+            } else {
+                groups.append((model.provider, model.local == true, [model]))
+            }
+        }
+        return groups
     }
 
     /// An account's limits, when the Mac has a reading of them.

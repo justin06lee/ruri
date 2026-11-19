@@ -1,6 +1,6 @@
 # ruri — Agent harnesses
 
-One layer of ruri's stack, owning `server/providers.ts, server/models.ts, server/sessions.ts, server/manager.ts, server/agents.ts, server/smallmodel.ts, server/updater.ts, scripts/acp-start.ts, scripts/lost-session.ts, scripts/provider-check.ts, scripts/provider-events.ts, scripts/provider-session.ts, scripts/subagents-live.ts, scripts/subagents.ts, server/modelCatalog.ts`. The whole stack, and how the layers connect, is in `.ruri/architecture.md`.
+One layer of ruri's stack, owning `server/providers.ts, server/models.ts, server/sessions.ts, server/manager.ts, server/agents.ts, server/smallmodel.ts, server/updater.ts, scripts/acp-start.ts, scripts/lost-session.ts, scripts/provider-check.ts, scripts/provider-events.ts, scripts/provider-session.ts, scripts/subagents-live.ts, scripts/subagents.ts, server/modelCatalog.ts, server/ollama.ts, scripts/local-models.ts`. The whole stack, and how the layers connect, is in `.ruri/architecture.md`.
 Don't edit this file: ruri writes it. `ruri layer harnesses` prints it with every line numbered, what git says changed in this layer lately and what sessions learned working here; once you have read it that way, put right what your work changed — `ruri layer harnesses add|set|drop <section> …`. Where it and the code disagree, the code is right.
 
 This layer drives installed coding CLIs (claude/codex/opencode/gemini/ACP) through yagami's AgentSession/ProviderSession, translating harness events into ruri transcript events. It is built around server/sessions.ts (SessionManager) with a provider registry, a model catalog, the Home manager agent, persistent team subagents, an auto-updater, a small-model client, and accounts: named Claude or Codex config dirs that a session launches under. Newcomers must grasp that ruri never talks to models directly: every prompt goes through a session object owned here, and transcript, usage and permission shapes are normalized here.
@@ -20,6 +20,7 @@ This layer drives installed coding CLIs (claude/codex/opencode/gemini/ACP) throu
 - **Lost/dead Claude session recovery:** scripts/lost-session.ts, server/sessions.ts
 - **Cross-harness event and session parity checks:** scripts/provider-events.ts, scripts/provider-session.ts, scripts/provider-check.ts
 - **Live subagent end-to-end check:** scripts/subagents-live.ts, server/agents.ts
+- **Local models (Ollama): the catalog's local tag, the copy with room, the short briefing:** server/ollama.ts, server/providers.ts, server/briefing.ts, scripts/local-models.ts
 
 ## How it works
 
@@ -44,6 +45,7 @@ This layer drives installed coding CLIs (claude/codex/opencode/gemini/ACP) throu
 - scripts/provider-events.ts — harness-free fake-provider transcript parity check
 - scripts/provider-session.ts — real-harness tool-chip/patch/gauge/rewind parity check
 - scripts/acp-start.ts — ACP restart on closed-pipe/locked-DB startup death
+- server/ollama.ts — what Ollama holds and each model's <name>-ruri copy with a 32k window (num_ctx), made on first use
 
 ## Rules and traps
 
@@ -57,6 +59,7 @@ This layer drives installed coding CLIs (claude/codex/opencode/gemini/ACP) throu
 - The account's CLAUDE_CONFIG_DIR or CODEX_HOME is set last in the launch env so nothing else can override it.
 - The built-in work account leaves its dir unset so it keeps Claude's default ~/.claude; personal and other accounts always keep their own dir.
 - Claude's signed-out auth status still prints JSON with exit code 1, so the status parser reads stdout regardless of exit code.
+- A local model is opencode:ollama/<name>; ProviderRegistry.parse answers its native id as the -ruri copy. Never run one on the plain name: Ollama's 4096 default hides the tools. No reasoning level is passed to one.
 
 ## What it talks to
 

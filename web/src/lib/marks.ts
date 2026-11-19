@@ -11,7 +11,9 @@ import type { ModelChoice } from "../../../shared/protocol";
  * "gemini:gemini-3-pro"), OpenCode's `<harness>:<provider>/<model>`
  * ("opencode:google/gemini-3-pro", or its own gateway's
  * "opencode:opencode/muse-spark-1.3" serving other labs' models), or a
- * harness's bare id when it named no models ("goose").
+ * harness's bare id when it named no models ("goose"). A model running on
+ * this machine ("opencode:ollama/bonsai-2:latest") is its maker's when its
+ * name says whose, and otherwise wears what serves it: Ollama's llama.
  */
 
 export type Lab =
@@ -151,8 +153,13 @@ export function labFromName(name: string): Lab | undefined {
  * Whose marks a model gets: the lab a provider segment names, else the one
  * its name gives away, else the one its harness only ever runs, else none.
  */
-export function markFor(model: string, choice?: Pick<ModelChoice, "provider" | "displayName">): MarkPick {
-  const { harness, rest } = split(model, choice?.provider);
+export function markFor(
+  model: string,
+  choice?: Pick<ModelChoice, "provider" | "displayName" | "local">,
+): MarkPick {
+  const { harness: runs, rest } = split(model, choice?.provider);
+  // what serves a local model stands where its harness would
+  const harness = choice?.local ? choice.local.toLowerCase() : runs;
   const segments = rest.split("/").filter(Boolean);
   const own = segments[segments.length - 1] ?? "";
   const name = choice?.displayName || own || harness;

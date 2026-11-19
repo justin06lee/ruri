@@ -7,7 +7,7 @@ function models(claude: ModelChoice[]): { models: Models; sent: ServerMessage[] 
   const sent: ServerMessage[] = [];
   const m = new Models((message) => sent.push(message));
   m.registry = {
-    modelChoices: async () => ({ claude, harnesses: [] }),
+    modelChoices: async () => ({ claude, harnesses: [], windows: new Map() }),
   } as unknown as Models["registry"];
   return { models: m, sent };
 }

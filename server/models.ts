@@ -40,7 +40,10 @@ export class Models {
     if (redetect) this.registry = new ProviderRegistry();
     void this.registry
       .modelChoices()
-      .then(({ claude, harnesses }) => {
+      .then(({ claude, harnesses, windows }) => {
+        // a local model's window is the one it is served with, known before
+        // any turn has run on it
+        for (const [model, window] of windows) this.windows.set(model, window);
         for (const m of claude) this.claudeNames.set(m.value, m.displayName);
         if (this.claudeModels.length === 0 && claude.length > 0) this.claudeModels = claude;
         // A live session's list can land first — the probe waits on every

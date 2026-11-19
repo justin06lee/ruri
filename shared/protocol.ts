@@ -375,6 +375,12 @@ export interface ModelChoice {
    * they always have one.
    */
   agentic?: boolean;
+  /**
+   * Set when the model runs on this machine rather than at a provider: the
+   * name of what serves it ("Ollama"). No account, no limits and no cost —
+   * and only as fast and as able as the machine and the model are.
+   */
+  local?: string;
   /** Reasoning levels this exact model reports, not a global provider guess. */
   reasoningEfforts?: Array<{ value: string; description?: string }>;
   defaultEffort?: string;
@@ -1991,6 +1997,11 @@ export interface StatusChat {
   /** Only with ?ids=1: the account it runs each harness on — its own, or
    *  its project's. */
   accounts?: Partial<Record<AccountProvider, string>>;
+  /** Only with ?ids=1: the model it runs on (a `StatusModel.id`) and the
+   *  reasoning level it is asked for — its own picks, else its project's,
+   *  else the defaults. */
+  model?: string;
+  effort?: string;
 }
 
 /** Something waiting on the user. */
@@ -2052,6 +2063,26 @@ export interface StatusAccount {
   provider: AccountProvider;
   signedIn?: boolean;
   who?: string;
+}
+
+/** A model a chat can be put on, as the phone's model menu lists it (only
+ *  with ?ids=1). */
+export interface StatusModel {
+  /** What POST /chat/model takes: "claude-fable-5-2", "codex:gpt-5.6-sol". */
+  id: string;
+  name: string;
+  /** Who serves it — "Claude", "Codex", "OpenCode" — or, for one running
+   *  on the Mac itself, what runs it: "Ollama". The menu groups by this. */
+  provider: string;
+  /** The harness it runs on — "claude", "codex", "opencode" — which is
+   *  whose accounts a chat on it spends from (`StatusAccount.provider`). */
+  harness: string;
+  /** It runs on the Mac itself: no account, no limits. */
+  local?: true;
+  /** The reasoning levels it takes, lowest first; none when it has none. */
+  efforts?: string[];
+  /** The level it starts at when a chat's own is not one of them. */
+  defaultEffort?: string;
 }
 
 /** One thing said in a chat, as the phone shows it (server/phoneChat.ts). */
@@ -2196,6 +2227,10 @@ export interface StatusReport {
   sidebar?: SidebarLayout;
   /** Only with ?ids=1: every account a project can be put on. */
   accounts?: StatusAccount[];
+  /** Only with ?ids=1: the models a chat can be put on — the starred ones,
+   *  which are what the Mac's own picker offers (the whole catalog when
+   *  none is), and whatever a chat shown is on now. */
+  models?: StatusModel[];
 }
 
 /** Where a project's events go: a command run with the event on its stdin,

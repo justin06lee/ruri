@@ -20,6 +20,9 @@ process.env["RURI_CONFIG_DIR"] = dir;
 // one (server/tailnet.ts). A test of either names a stand-in.
 process.env["RURI_GHOSTLY"] = "";
 process.env["RURI_TAILSCALE"] = "";
+// …and no Ollama: a catalog probed in a test must not list the user's own
+// local models, or make a copy of one (server/ollama.ts).
+process.env["RURI_OLLAMA"] = "";
 // …and none of the user's accounts: no account added in a test makes a
 // folder in their home, no status is asked of their own Claude Code or
 // Codex, and the personal and Codex homes are folders of the run's own

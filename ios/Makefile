@@ -8,9 +8,11 @@ DERIVED := build
 APP := $(DERIVED)/Build/Products/Debug-iphonesimulator/Ruri.app
 
 # Xcode, even while xcode-select still points at the command-line tools
-DEVELOPER_DIR ?= $(shell p=$$(xcode-select -p); case "$$p" in *CommandLineTools*) \
+# (each case pattern opens with a parenthesis: make ends $(shell …) at the
+# first one that closes without an opener)
+DEVELOPER_DIR ?= $(shell p=$$(xcode-select -p); case "$$p" in (*CommandLineTools*) \
 	x=$$(mdfind "kMDItemCFBundleIdentifier == 'com.apple.dt.Xcode'" | head -1); \
-	[ -n "$$x" ] && echo "$$x/Contents/Developer" || echo "$$p";; *) echo "$$p";; esac)
+	[ -n "$$x" ] && echo "$$x/Contents/Developer" || echo "$$p";; (*) echo "$$p";; esac)
 export DEVELOPER_DIR
 
 XCODEBUILD := xcodebuild -project Ruri.xcodeproj -scheme Ruri -derivedDataPath $(DERIVED) -quiet

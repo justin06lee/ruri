@@ -70,6 +70,7 @@ export const settingHandlers = {
     if (!ctx.store.findSession(msg.projectId)) return;
     if (ctx.store.effectiveSettings(msg.projectId)?.model === msg.model) return;
     ctx.store.setSessionSettings(msg.projectId, { model: msg.model });
+    ctx.models.registry.prepare(msg.model);
     ctx.manager.setModel(msg.projectId, msg.model);
     ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
     // the new model may have a different window — remeasure against it

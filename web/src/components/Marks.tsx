@@ -936,6 +936,30 @@ export const Goose = () => (
   </Doodle>
 );
 
+/* ── Ollama ──────────────────────────────────────────────────────── */
+
+const OLLAMA = [
+  { d: blob(37, 27, 7, 17, { seed: 3 }), fill: "#fff" },
+  { d: blob(63, 27, 7, 17, { seed: 7 }), fill: "#fff" },
+  { d: blob(50, 60, 27, 31, { seed: 11 }), fill: "#fff" },
+];
+
+/** Ollama's llama, face on: what a model running on this machine wears
+ *  when its name doesn't say who made it. */
+export const Ollama = () => (
+  <Doodle label="Ollama" seed={107} tilt={-4}>
+    {(id) => (
+      <>
+        <Shapes id={`${id}-s`} parts={OLLAMA} />
+        <circle cx={39} cy={54} r={3.2} fill={FEATURE} />
+        <circle cx={61} cy={54} r={3.2} fill={FEATURE} />
+        <Line d={blob(50, 71, 10, 7, { seed: 5 })} width={3} color={FEATURE} />
+        <Line d={stroke([47, 69], [53, 69], 0.3)} width={3} color={FEATURE} />
+      </>
+    )}
+  </Doodle>
+);
+
 /* ── the pair ────────────────────────────────────────────────────── */
 
 /** The "×" between them, drawn in two strokes. */
@@ -1001,6 +1025,7 @@ const PAIRS: Record<Lab, Pair> = {
 const HARNESS_MARKS: Record<string, { name: string; Mark: () => ReactNode }> = {
   opencode: { name: "OpenCode", Mark: OpenCode },
   goose: { name: "Goose", Mark: Goose },
+  ollama: { name: "Ollama", Mark: Ollama },
 };
 
 /** The same name, near enough — "Goose" is goose's own default model. */

@@ -363,6 +363,14 @@ final class MacClient: Sendable {
         try await act(ChatAccountBody(id: chat, provider: provider, account: account), to: "/chat/account", at: address, port: port)
     }
 
+    /// Put one chat on a model, tell it a reasoning level, or both, as the
+    /// pickers in the Mac's prompt box do. False when the Mac wouldn't: a
+    /// model it no longer lists, a level the model doesn't take.
+    @discardableResult
+    func chatModel(_ model: String?, effort: String?, chat: String, at address: String, port: Int) async throws -> Bool {
+        try await act(ChatModelBody(id: chat, model: model, effort: effort), to: "/chat/model", at: address, port: port)
+    }
+
     /// What is written in a chat's prompt box here: every window's box
     /// takes it.
     func draft(_ text: String, chat: String, at address: String, port: Int) async throws {

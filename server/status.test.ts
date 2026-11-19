@@ -4,6 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import * as http from "node:http";
 import type {
+  ModelChoice,
   PermissionRequest,
   Project,
   ServerMessage,
@@ -301,6 +302,84 @@ describe("the status report", () => {
     // each chat with the account it runs on: its own, else its project's
     expect(withIds.projects[0]!.lead?.accounts).toEqual({ claude: "work", codex: "codex" });
     expect(plain.projects[0]!.lead?.accounts).toBeUndefined();
+  });
+
+  test("with ids, the models a chat can be put on, and the one each chat is on", () => {
+    const w = world();
+    const catalog: ModelChoice[] = [
+      {
+        value: "fable",
+        displayName: "Fable 5.2",
+        reasoningEfforts: [{ value: "low" }, { value: "high" }],
+        defaultEffort: "high",
+      },
+      { value: "haiku", displayName: "Haiku 4.5" },
+      { value: "codex:gpt-6", displayName: "GPT-6", provider: "codex", providerLabel: "Codex CLI" },
+      {
+        value: "opencode:opencode/big-pickle",
+        displayName: "Big Pickle",
+        provider: "opencode",
+        providerLabel: "OpenCode",
+      },
+      {
+        value: "opencode:ollama/bonsai-2:latest",
+        displayName: "bonsai-2:latest",
+        provider: "opencode",
+        providerLabel: "OpenCode",
+        local: "Ollama",
+      },
+    ];
+    let starred = ["fable", "opencode:ollama/bonsai-2:latest"];
+    const picks: Record<string, { model: string; effort: string }> = {
+      "site-lead": { model: "codex:gpt-6", effort: "medium" },
+    };
+    (w.ctx as unknown as { models: { allModels: () => ModelChoice[] } }).models = { allModels: () => catalog };
+    Object.assign(w.ctx.store, {
+      starredModels: () => starred,
+      defaultModel: () => "haiku",
+      effectiveSettings: (id: string) => ({
+        permissionMode: "default",
+        ...(picks[id] ?? { model: "fable", effort: "high" }),
+      }),
+    });
+    const plain = statusReport(w.ctx, { now: w.now() });
+    expect(plain.models).toBeUndefined();
+    expect(plain.projects.every((p) => p.lead?.model === undefined)).toBe(true);
+    const withIds = statusReport(w.ctx, { ids: true, now: w.now() });
+    // the starred ones, as the Mac's picker offers them, the default, and
+    // the one a chat is on though nobody starred it — in the catalog's order
+    expect(withIds.models).toEqual([
+      {
+        id: "fable",
+        name: "Fable 5.2",
+        provider: "Claude",
+        harness: "claude",
+        efforts: ["low", "high"],
+        defaultEffort: "high",
+      },
+      { id: "haiku", name: "Haiku 4.5", provider: "Claude", harness: "claude" },
+      { id: "codex:gpt-6", name: "GPT-6", provider: "Codex", harness: "codex" },
+      {
+        id: "opencode:ollama/bonsai-2:latest",
+        name: "bonsai-2:latest",
+        provider: "Ollama",
+        harness: "opencode",
+        local: true,
+      },
+    ]);
+    const site = withIds.projects.find((p) => p.name === "site")!;
+    expect([site.lead?.model, site.lead?.effort]).toEqual(["codex:gpt-6", "medium"]);
+    const ruri = withIds.projects.find((p) => p.name === "ruri")!;
+    expect([ruri.lead?.model, ruri.team[0]?.effort]).toEqual(["fable", "high"]);
+    // nothing starred: the whole catalog, as the picker falls back to
+    starred = [];
+    expect(statusReport(w.ctx, { ids: true, now: w.now() }).models?.map((m) => m.provider)).toEqual([
+      "Claude",
+      "Claude",
+      "Codex",
+      "OpenCode",
+      "Ollama",
+    ]);
   });
 
   test("with ids, the sidebar as the Mac arranges it, a hidden project left out; and the stars", () => {

@@ -8,6 +8,10 @@ import SwiftUI
 /// (picking the project's is following the project again). The Mac does
 /// it as its own account chip and row menu do; a chat already running
 /// keeps its account until its next start.
+///
+/// The button names the account of the harness the chat's model runs on,
+/// so a chat on a Codex model shows its Codex account. A chat on a model
+/// with no account — one running on the Mac itself — has no button.
 struct AccountMenu: View {
     @Environment(RuriModel.self) private var model
     @Environment(\.palette) private var palette
@@ -16,6 +20,13 @@ struct AccountMenu: View {
     var chat: String?
 
     private var accounts: [StatusAccount] { model.report?.accounts ?? [] }
+
+    /// The harness whose account the button names: the one the chat's
+    /// model runs on — Claude's for a project, and until the Mac says.
+    private var harness: String {
+        guard let chat, let on = model.report?.model(of: chat) else { return "claude" }
+        return on.harness ?? "claude"
+    }
 
     /// The account the project runs a harness on: its pick while that is
     /// still one of the harness's, else the harness's first.
@@ -48,7 +59,7 @@ struct AccountMenu: View {
     }
 
     var body: some View {
-        if let macId = project.macId, let shown = current("claude") {
+        if let macId = project.macId, let shown = current(harness) {
             let full = (model.report?.usage(of: shown.id)?.fullest?.percent ?? 0) >= 90
             Menu {
                 ForEach(["claude", "codex"], id: \.self) { provider in

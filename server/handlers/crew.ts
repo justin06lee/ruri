@@ -192,6 +192,7 @@ export function createCrewManager(ctx: ServerContext): SessionManager {
           projectDir: project.path,
           projectName: project.name,
           secrets: ctx.secrets,
+          small: ctx.models.registry.small(project.model || ctx.store.defaultModel()),
           claude,
           naming: "",
           stack: owner ? stackBriefing(ctx.briefs.get(owner.id)) : "",

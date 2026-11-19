@@ -11,6 +11,7 @@ import {
 } from "@justin06lee/yagami";
 import type { ModelChoice } from "../shared/protocol.js";
 import { warn } from "./log.js";
+import { localModel, lookLocal, servingLocal, SIZED, type LocalModel } from "./ollama.js";
 
 /** A Claude model as its source describes it — the startup catalog gives all
  *  of this, a live session's own report only the first two. */
@@ -143,6 +144,51 @@ function bareModelName(name: string): string {
   return last || name;
 }
 
+/** The harness local models run on, and how it names the ones Ollama
+ *  serves: "opencode:ollama/bonsai-2:latest" (server/ollama.ts). */
+const LOCAL_HARNESS = "opencode";
+const LOCAL_PREFIX = "ollama/";
+/** Under this many tokens of window, a session is briefed in a few lines
+ *  (server/briefing.ts localBriefing). */
+const SMALL_WINDOW = 65_536;
+
+/** Ollama's name for a model, when the harness model is one of its. */
+function localName(providerId: string | undefined, model: string | undefined): string | undefined {
+  return providerId === LOCAL_HARNESS && model?.startsWith(LOCAL_PREFIX)
+    ? model.slice(LOCAL_PREFIX.length)
+    : undefined;
+}
+
+/**
+ * The catalog's local models as ruri lists them: marked as running on this
+ * machine, under Ollama's own name for them, with what Ollama says they
+ * take. The copies ruri made to give them room are not models of their own
+ * and go, and so does one Ollama says cannot call tools — in a coding
+ * harness it could only talk. None has a reasoning level. With no word from Ollama (ruri could not
+ * reach it, OpenCode could) they are listed as OpenCode reported them.
+ */
+export function localChoices(choices: ModelChoice[], local: readonly LocalModel[]): ModelChoice[] {
+  const byName = new Map(local.map((model) => [model.name, model]));
+  return choices.flatMap((choice) => {
+    const name = localName(choice.provider, choice.value.slice(choice.value.indexOf(":") + 1));
+    if (name === undefined) return [choice];
+    if (name.endsWith(SIZED)) return [];
+    const model = byName.get(name);
+    if (model && !model.tools) return [];
+    // the levels OpenCode lists are its default model's: set to a local
+    // model, a session of its has none to choose
+    const { reasoningEfforts: _levels, defaultEffort: _level, ...rest } = choice;
+    return [
+      {
+        ...rest,
+        displayName: name,
+        local: "Ollama",
+        ...(model ? { inputModalities: model.vision ? ["text", "image"] : ["text"] } : {}),
+      },
+    ];
+  });
+}
+
 /**
  * Non-Claude coding harnesses (Codex, OpenCode, Gemini, any ACP agent),
  * driven through yagami's provider layer. Claude sessions keep the full
@@ -183,9 +229,34 @@ export class ProviderRegistry {
     }
   }
 
-  /** Split a model id into provider + native model (Claude when no prefix). */
+  /**
+   * Split a model id into provider + native model (Claude when no prefix).
+   * A local model's native id is the one it is served by: its copy with a
+   * window a harness fits in, which asking for it here makes if it is not
+   * there yet (server/ollama.ts) — so every chat set to one has it by the
+   * time it runs, and no model nobody uses is ever copied.
+   */
   parse(model: string | undefined): ModelRef {
-    return parseModelRef(model, [...this.installed.keys(), "claude"]);
+    const ref = parseModelRef(model, [...this.installed.keys(), "claude"]);
+    const local = localName(ref.providerId, ref.model);
+    return local === undefined ? ref : { ...ref, model: `${LOCAL_PREFIX}${servingLocal(local)}` };
+  }
+
+  /** Have what a chat on this model needs before its first prompt: a
+   *  local model's copy with room, which asking for it makes. */
+  prepare(model: string | undefined): void {
+    this.parse(model);
+  }
+
+  /**
+   * Whether a chat on this model has too little room for ruri's whole
+   * briefing: a local model served with a window under SMALL_WINDOW, or
+   * one whose window is not known yet. Only a local model is ever small.
+   */
+  small(model: string | undefined): boolean {
+    const ref = parseModelRef(model, [...this.installed.keys(), "claude"]);
+    const name = localName(ref.providerId, ref.model);
+    return name !== undefined && (localModel(name)?.window ?? 0) < SMALL_WINDOW;
   }
 
   /** Build a provider instance working in the given project directory,
@@ -201,7 +272,20 @@ export class ProviderRegistry {
     // governs, verbatim.
     const patched: ProviderConfigEntry =
       id === "codex" && !entry.sandbox ? { ...entry, sandbox: "workspace-write" } : entry;
-    return createProvider(id, patched, { workDir, appName: "ruri" });
+    const provider = createProvider(id, patched, { workDir, appName: "ruri" });
+    if (id === LOCAL_HARNESS && isSessionProvider(provider)) {
+      // A session set to a local model has no reasoning level to choose,
+      // and asking for one fails its first turn ("effort not found"): the
+      // levels are checked against the list the session opened with, which
+      // is its default model's.
+      const open = provider.openSession.bind(provider);
+      provider.openSession = (options) => {
+        if (localName(id, options.model) === undefined) return open(options);
+        const { effort: _effort, ...rest } = options;
+        return open(rest);
+      };
+    }
+    return provider;
   }
 
   /** Whether this harness can branch a warm conversation at a reported turn. */
@@ -218,14 +302,23 @@ export class ProviderRegistry {
    * process per provider, so this runs once in the background with a
    * timeout; a harness that won't answer still contributes its
    * default-model entry.
+   *
+   * Ollama is asked beside them what it serves, which is what says which of
+   * OpenCode's models are local ones and how big a window each is served
+   * with (`windows`, by catalog value).
    */
-  async modelChoices(): Promise<{ claude: ModelChoice[]; harnesses: ModelChoice[] }> {
+  async modelChoices(): Promise<{
+    claude: ModelChoice[];
+    harnesses: ModelChoice[];
+    windows: Map<string, number>;
+  }> {
     const probe = (provider: Provider) =>
       Promise.race([
         provider.listModels(),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 15_000)),
       ]);
-    const [claude, harnesses] = await Promise.all([
+    const [local, claude, harnesses] = await Promise.all([
+      this.installed.has(LOCAL_HARNESS) ? lookLocal() : Promise.resolve([]),
       (async () => {
         try {
           if (!this.claude) return [];
@@ -268,6 +361,10 @@ export class ProviderRegistry {
         }),
       ).then((lists) => lists.flat()),
     ]);
-    return { claude, harnesses };
+    return {
+      claude,
+      harnesses: localChoices(harnesses, local),
+      windows: new Map(local.map((model) => [`${LOCAL_HARNESS}:${LOCAL_PREFIX}${model.name}`, model.window])),
+    };
   }
 }

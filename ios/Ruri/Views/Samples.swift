@@ -106,6 +106,29 @@ extension StatusReport {
         for at in report.projects.indices {
             report.projects[at].accounts = ["claude": report.projects[at].name == "garden" ? "personal" : "work", "codex": "codex"]
         }
+        report.models = [
+            StatusModel(
+                id: "claude-fable-5-2", name: "Fable 5.2", provider: "Claude", harness: "claude",
+                efforts: ["low", "medium", "high", "xhigh"], defaultEffort: "high"
+            ),
+            StatusModel(
+                id: "claude-haiku-4-5", name: "Haiku 4.5", provider: "Claude", harness: "claude",
+                efforts: ["low", "medium", "high"], defaultEffort: "medium"
+            ),
+            StatusModel(
+                id: "codex:gpt-5.6-sol", name: "GPT-5.6-Sol", provider: "Codex", harness: "codex",
+                efforts: ["low", "medium", "high"], defaultEffort: "medium"
+            ),
+            StatusModel(
+                id: "opencode:ollama/bonsai-2:latest", name: "bonsai-2:latest", provider: "Ollama",
+                harness: "opencode", local: true
+            ),
+        ]
+        // the made-up conversation (ChatFrame.sample) is lighthouse's own
+        report.projects[0].lead?.id = "sample"
+        report.projects[0].lead?.model = "claude-fable-5-2"
+        report.projects[0].lead?.effort = "high"
+        report.projects[0].lead?.accounts = ["claude": "work", "codex": "codex"]
         report.sidebar = SidebarLayout(
             order: ["f-work", "p-garden", "p-atlas"],
             folders: [SidebarLayout.Folder(id: "f-work", name: "C & Tech", projects: ["p-lighthouse", "p-orchard"])]

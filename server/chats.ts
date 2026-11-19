@@ -335,6 +335,7 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         projectDir: project.path,
         projectName: project.name,
         secrets: ctx.secrets,
+        small: ctx.models.registry.small(project.model || ctx.store.defaultModel()),
         claude,
         // Claude gets a tool for naming, and asks the user; everything
         // else registers from the shell with `ruri register`

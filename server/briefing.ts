@@ -57,10 +57,35 @@ export function scriptsBriefing(claude: boolean): string {
   ].join("\n");
 }
 
+/**
+ * What a small local model is told instead (server/ollama.ts): where it
+ * is, and where the project's notes are. The rest of a session's briefing —
+ * the library, the bridge, the other chats, minding its own context — is
+ * thousands of tokens about things a model with a 32k window has no room
+ * to do, read by a model that small as things to try.
+ */
+export function localBriefing(input: { projectDir: string; projectName: string }): string {
+  const catchup = path.join(input.projectDir, ".ruri", "catchup.md");
+  return [
+    "<ruri:project>",
+    `You are working in ${input.projectName}, in ${input.projectDir}, as a model running on this machine.`,
+    ...(exists(catchup)
+      ? [
+          `If you don't already know the project, read ${catchup} first: what was decided and why, what failed, the traps, what is still open.`,
+        ]
+      : []),
+    "Work in small steps: read a file before you change it, and use your tools to do a thing rather than describe doing it.",
+    "</ruri:project>",
+  ].join("\n");
+}
+
 export function sessionBriefing(input: {
   projectDir: string;
   projectName: string;
   secrets: SecretStore;
+  /** A local model with a small window: it gets `localBriefing` and
+   *  nothing else here. */
+  small?: boolean;
   /** Claude loads a project's own skills itself; nothing else does. */
   claude: boolean;
   /** "tool" when the harness holds ruri's naming tool; otherwise "", and
@@ -89,6 +114,7 @@ export function sessionBriefing(input: {
    *  (server/mycelium.ts MYCELIUM_BRIEFING) — empty otherwise. */
   mycelium?: string;
 }): string {
+  if (input.small) return localBriefing(input);
   const blocks: string[] = [];
 
   const catchup = path.join(input.projectDir, ".ruri", "catchup.md");

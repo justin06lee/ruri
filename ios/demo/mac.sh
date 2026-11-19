@@ -82,7 +82,8 @@ SWIFT
 }
 
 build() {
-  echo "building $APP…"
+  # (braces: a shell reading bytes takes the ellipsis into the name)
+  echo "building ${APP}…"
   rm -rf "$APP"
   mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
   # shellcheck disable=SC2086

@@ -135,7 +135,9 @@ function ModelCatalog() {
     .map((value) => unlisted(value, models));
   const q = query.trim().toLowerCase();
   const matches = [...models, ...kept].filter((m) =>
-    `${m.displayName} ${m.value} ${m.providerLabel ?? "claude code"}`.toLowerCase().includes(q),
+    `${m.displayName} ${m.value} ${m.providerLabel ?? "claude code"} ${m.local ? `local ${m.local}` : ""}`
+      .toLowerCase()
+      .includes(q),
   );
   // starred float to the top, catalog order within each half
   const rows = [
@@ -201,7 +203,10 @@ function ModelCatalog() {
                 if (holder !== m.value) send({ type: "set_model_role", model: m.value, role });
               }}
             >
-              <span className="model-mark" title={m.providerLabel ?? "Claude Code"}>
+              <span
+                className="model-mark"
+                title={m.local ? `${m.local}, through ${m.providerLabel}` : (m.providerLabel ?? "Claude Code")}
+              >
                 <ModelIcon pick={markFor(m.value, m)} />
               </span>
               <span
@@ -210,6 +215,14 @@ function ModelCatalog() {
               >
                 {m.displayName}
               </span>
+              {m.local && (
+                <span
+                  className="model-tag"
+                  title={`Runs on this machine, served by ${m.local}: no account, no limits, no cost — and as fast as this machine is`}
+                >
+                  local
+                </span>
+              )}
               {small && tag("small", "small tasks", "Runs small background tasks such as notes and titles")}
               {isDefault && tag("default", "default", "What new chats and projects start on")}
               {keeper &&

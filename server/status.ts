@@ -20,9 +20,11 @@ import {
   CARRY_ON,
   ACCOUNT_PROVIDERS,
   type AccountProvider,
+  type ModelChoice,
   type Project,
   type StatusAccount,
   type StatusChat,
+  type StatusModel,
   type StatusNeed,
   type StatusProject,
   type StatusUsage,
@@ -158,7 +160,7 @@ function readProject(
       lastWords: trimSummary(hooks?.lastSummary ?? "", WORDS_CHARS),
       ...(ended !== undefined ? { lastActive: iso(ended) } : {}),
       ...(session.watched ? { watched: true as const } : {}),
-      ...(ids ? { id: session.id, accounts: channelAccounts(project, session) } : {}),
+      ...(ids ? { id: session.id, accounts: channelAccounts(project, session), ...runsOn(ctx, session.id) } : {}),
     };
     if (state === "working") working.push(chat);
     if (role === "lead") lead = chat;
@@ -231,8 +233,54 @@ export function statusReport(ctx: ServerContext, opts: { ids?: boolean; now?: nu
     projects: read.map((r) => r.project),
     ...(layout ? { sidebar: layout } : {}),
     ...(opts.ids ? { accounts: accountsOf() } : {}),
+    ...(opts.ids ? modelsOf(ctx, read) : {}),
     ...usageOf(ctx),
   };
+}
+
+/** The model and reasoning level a chat runs on, as its settings stand. */
+function runsOn(ctx: ServerContext, chatId: string): { model?: string; effort?: string } {
+  // a stand-in store (the tests') may not say
+  const settings = (ctx.store as Partial<Pick<ServerContext["store"], "effectiveSettings">>).effectiveSettings?.(
+    chatId,
+  );
+  return settings ? { model: settings.model, effort: settings.effort } : {};
+}
+
+/** A model as the phone's menu lists it. */
+export function statusModel(model: ModelChoice): StatusModel {
+  const efforts = model.reasoningEfforts?.map((effort) => effort.value) ?? [];
+  return {
+    id: model.value,
+    name: model.displayName,
+    provider:
+      model.local ?? (model.provider ? (HARNESS_NAMES[model.provider] ?? model.providerLabel ?? model.provider) : "Claude"),
+    harness: model.provider ?? "claude",
+    ...(model.local ? { local: true as const } : {}),
+    ...(efforts.length ? { efforts } : {}),
+    ...(model.defaultEffort ? { defaultEffort: model.defaultEffort } : {}),
+  };
+}
+
+/** The models a chat can be put on from the phone: what the Mac's picker
+ *  offers, the one a new chat starts on, and whatever a chat it is shown
+ *  is on. */
+function modelsOf(ctx: ServerContext, read: Array<{ project: StatusProject }>): { models?: StatusModel[] } {
+  // a stand-in context (the tests') may have no catalog
+  const catalog = (ctx as Partial<Pick<ServerContext, "models">>).models?.allModels() ?? [];
+  if (catalog.length === 0) return {};
+  const starred = new Set(
+    (ctx.store as Partial<Pick<ServerContext["store"], "starredModels">>).starredModels?.() ?? [],
+  );
+  const offered = catalog.filter((model) => starred.has(model.value));
+  const store = ctx.store as Partial<Pick<ServerContext["store"], "defaultModel">>;
+  const inUse = new Set([
+    store.defaultModel?.(),
+    ...read.flatMap((r) => [r.project.lead, ...r.project.team].map((chat) => chat?.model)),
+  ]);
+  const listed = offered.length > 0 ? offered : catalog;
+  const models = catalog.filter((model) => listed.includes(model) || inUse.has(model.value));
+  return { models: models.map(statusModel) };
 }
 
 /** The account a project runs each harness on. */

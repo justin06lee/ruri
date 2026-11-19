@@ -4,6 +4,7 @@ import {
   type AskAnswers,
   type AskQuestion,
   type LetterFrom,
+  type ModelChoice,
   type PermissionRequest,
   type PhoneChatFrame,
   type Project,
@@ -22,6 +23,7 @@ import {
   phoneQueue,
   phoneQueueDo,
   phoneAccount,
+  phoneModel,
   phoneSidebar,
   phoneStop,
   readAnswerBody,
@@ -396,6 +398,114 @@ describe("the phone's account menu", () => {
     expect(phoneAccount(ctx, "hid", "personal")).toBe(false);
     expect(phoneAccount(ctx, "a", "nobody")).toBe(false);
     expect(phoneAccount(ctx, "nope", "work")).toBe(false);
+  });
+});
+
+describe("the phone's model menu", () => {
+  const catalog: ModelChoice[] = [
+    {
+      value: "fable",
+      displayName: "Fable 5.2",
+      reasoningEfforts: [{ value: "low" }, { value: "high" }, { value: "xhigh" }],
+      defaultEffort: "high",
+    },
+    {
+      value: "codex:gpt-6",
+      displayName: "GPT-6",
+      provider: "codex",
+      reasoningEfforts: [{ value: "low" }, { value: "medium" }],
+      defaultEffort: "medium",
+    },
+    {
+      value: "opencode:ollama/bonsai-2:latest",
+      displayName: "bonsai-2:latest",
+      provider: "opencode",
+      local: "Ollama",
+    },
+  ];
+
+  function world() {
+    const session: { id: string; model?: string; effort?: string } = { id: "a-lead" };
+    const projects: Project[] = [{ id: "a", name: "a", path: "/a", sessions: [session] }];
+    const sent: ServerMessage[] = [];
+    const told: string[] = [];
+    const ctx = {
+      models: {
+        allModels: () => catalog,
+        registry: { prepare: (model: string) => told.push(`prepare ${model}`) },
+      },
+      store: {
+        list: () => projects,
+        findSession: (id: string) => (id === session.id ? { project: projects[0]!, session } : undefined),
+        effectiveSettings: (id: string) =>
+          id === session.id
+            ? {
+                model: session.model || "fable",
+                effort: session.effort || "xhigh",
+                permissionMode: "default",
+              }
+            : undefined,
+        setSessionSettings: (_id: string, patch: { model?: string; effort?: string }) =>
+          Object.assign(session, patch),
+      },
+      manager: {
+        setModel: (_id: string, model: string) => told.push(`model ${model}`),
+        setEffort: (_id: string, effort: string) => told.push(`effort ${effort}`),
+      },
+      // nothing measured yet: no gauge to redraw
+      turns: { contexts: new Map() },
+      archive: { contextTokens: () => undefined },
+      clients: { broadcast: (message: ServerMessage) => sent.push(message) },
+    } as unknown as ServerContext;
+    return { ctx, session, sent, told };
+  }
+
+  test("a chat goes on a model the catalog lists, as the prompt box's picker puts it", () => {
+    const w = world();
+    expect(phoneModel(w.ctx, "a-lead", { model: "fable" })).toEqual({ ok: true });
+    // already on it: nothing to say
+    expect(w.told).toEqual([]);
+    expect(phoneModel(w.ctx, "a-lead", { model: "claude-made-up" })).toEqual({
+      ok: false,
+      error: "This computer doesn't list that model.",
+    });
+    expect(phoneModel(w.ctx, "nope", { model: "fable" })).toEqual({ ok: false, error: "That chat is gone." });
+    expect(w.session.model).toBeUndefined();
+  });
+
+  test("moved onto a model that doesn't take its level, it goes to that model's own", () => {
+    const w = world();
+    expect(phoneModel(w.ctx, "a-lead", { model: "codex:gpt-6" })).toEqual({ ok: true });
+    expect(w.session).toMatchObject({ model: "codex:gpt-6", effort: "medium" });
+    expect(w.told).toEqual(["prepare codex:gpt-6", "model codex:gpt-6", "effort medium"]);
+    expect(w.sent.map((m) => m.type)).toEqual(["projects", "projects"]);
+  });
+
+  test("a local model has no level to pick, and keeps the chat's own for when it leaves", () => {
+    const w = world();
+    expect(phoneModel(w.ctx, "a-lead", { model: "opencode:ollama/bonsai-2:latest" })).toEqual({ ok: true });
+    expect(w.session).toEqual({ id: "a-lead", model: "opencode:ollama/bonsai-2:latest" });
+    expect(phoneModel(w.ctx, "a-lead", { effort: "high" })).toEqual({
+      ok: false,
+      error: "That model has no reasoning levels.",
+    });
+  });
+
+  test("a level is one the chat's model takes", () => {
+    const w = world();
+    expect(phoneModel(w.ctx, "a-lead", { effort: "low" })).toEqual({ ok: true });
+    expect(w.session.effort).toBe("low");
+    expect(phoneModel(w.ctx, "a-lead", { effort: "ludicrous" })).toEqual({
+      ok: false,
+      error: "That model doesn't take that level.",
+    });
+    // both at once: the level is checked against the model it is going to
+    expect(phoneModel(w.ctx, "a-lead", { model: "codex:gpt-6", effort: "xhigh" })).toMatchObject({
+      ok: false,
+    });
+    expect(w.session.model).toBeUndefined();
+    expect(phoneModel(w.ctx, "a-lead", { model: "codex:gpt-6", effort: "low" })).toEqual({ ok: true });
+    expect(w.session).toMatchObject({ model: "codex:gpt-6", effort: "low" });
   });
 });
 

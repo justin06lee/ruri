@@ -219,6 +219,86 @@ struct StatusTests {
         #expect(report.usage(of: "personal") == nil)
     }
 
+    @Test func readsModels() throws {
+        let json = """
+            {
+              "computer": "Mac mini", "at": "2026-11-19T09:00:00.000Z", "needsYou": [],
+              "projects": [
+                { "name": "ruri", "state": "idle", "doingNow": "", "id": "p-ruri",
+                  "lead": { "name": "Lead", "role": "lead", "state": "idle", "lastWords": "", "id": "c-lead",
+                            "model": "codex:gpt-6", "effort": "medium" },
+                  "team": [
+                    { "name": "Server", "role": "teammate", "state": "idle", "lastWords": "", "id": "c-server",
+                      "model": "opencode:ollama/bonsai-2:latest", "effort": "high" },
+                    { "name": "Old", "role": "teammate", "state": "idle", "lastWords": "", "id": "c-old",
+                      "model": "opencode:zen/gone-model", "effort": "high" }
+                  ] }
+              ],
+              "models": [
+                { "id": "fable", "name": "Fable 5.2", "provider": "Claude", "harness": "claude",
+                  "efforts": ["low", "high", "xhigh"], "defaultEffort": "high" },
+                { "id": "codex:gpt-6", "name": "GPT-6", "provider": "Codex", "harness": "codex",
+                  "efforts": ["low", "medium"], "defaultEffort": "medium" },
+                { "id": "haiku", "name": "Haiku 4.5", "provider": "Claude", "harness": "claude" },
+                { "id": "opencode:ollama/bonsai-2:latest", "name": "bonsai-2:latest", "provider": "Ollama",
+                  "harness": "opencode", "local": true }
+              ]
+            }
+            """
+        let report = try StatusReport.decoder().decode(StatusReport.self, from: Data(json.utf8))
+        #expect(report.model(of: "c-lead")?.name == "GPT-6")
+        #expect(report.model(of: "c-lead")?.harness == "codex")
+        #expect(report.model(of: "c-server")?.local == true)
+        // a model the Mac no longer lists is still named, from its id
+        #expect(report.model(of: "c-old") == nil)
+        #expect(ModelMenu.roughName("opencode:zen/gone-model") == "gone-model")
+        #expect(ModelMenu.roughName("codex:gpt-6") == "gpt-6")
+        #expect(ModelMenu.roughName("claude-fable-5-2") == "claude-fable-5-2")
+        // by who serves them, each lot in the Mac's order
+        let groups = report.modelGroups
+        #expect(groups.map(\.provider) == ["Claude", "Codex", "Ollama"])
+        #expect(groups.first?.models.map(\.id) == ["fable", "haiku"])
+        #expect(groups.map(\.local) == [false, false, true])
+        #expect(ModelMenu.heading("Ollama", local: true, computer: "Mac mini") == "Ollama · on Mac mini")
+        #expect(ModelMenu.heading("Claude", local: false, computer: "Mac mini") == "Claude")
+    }
+
+    @Test func aModelsLevel() {
+        let fable = StatusModel(
+            id: "fable", name: "Fable", provider: "Claude", efforts: ["low", "high", "xhigh"], defaultEffort: "high"
+        )
+        // its own while the model takes it, else the model's
+        #expect(fable.effort(keeping: "xhigh") == "xhigh")
+        #expect(fable.effort(keeping: "minimal") == "high")
+        #expect(fable.effort(keeping: nil) == "high")
+        let bare = StatusModel(id: "x", name: "X", provider: "Codex", efforts: ["low", "medium"])
+        #expect(bare.effort(keeping: "xhigh") == "low")
+        // a model with no levels leaves the chat's own alone, for when it leaves
+        let local = StatusModel(id: "l", name: "bonsai", provider: "Ollama", local: true)
+        #expect(local.effort(keeping: "xhigh") == "xhigh")
+        #expect(StatusModel.word("xhigh") == "XHigh")
+        #expect(StatusModel.word("medium") == "Medium")
+    }
+
+    @MainActor @Test func putsAChatOnAModelAtOnce() throws {
+        var sample = StatusReport.sample
+        sample.projects[0].lead?.effort = "xhigh"
+        let model = RuriModel(demo: sample)
+        let codex = try #require(model.report?.models?.first { $0.harness == "codex" })
+        #expect(model.report?.chat("sample")?.model == "claude-fable-5-2")
+        model.setChatModel(codex, for: "sample")
+        // on it here before the Mac has answered, at a level it takes
+        #expect(model.report?.chat("sample")?.model == codex.id)
+        #expect(model.report?.chat("sample")?.effort == "medium")
+        model.setChatModel(effort: "low", for: "sample")
+        #expect(model.report?.chat("sample")?.effort == "low")
+        #expect(model.report?.chat("sample")?.model == codex.id)
+        // nothing asked is nothing done
+        model.setChatModel(for: "sample")
+        model.setChatModel(codex, for: "no-such-chat")
+        #expect(model.report?.chat("sample")?.model == codex.id)
+    }
+
     @Test func listsWhatIsWorking() throws {
         let report = try StatusReport.decoder().decode(StatusReport.self, from: Data(Self.json.utf8))
         // the iPhone app teammate is at work: named by its project and itself

@@ -127,3 +127,22 @@ describe("labFromName", () => {
     for (const [name, want] of cases) expect([name, labFromName(name)]).toEqual([name, want as never]);
   });
 });
+
+describe("a model running on this machine", () => {
+  test("is its maker's when its name says whose, and Ollama's llama otherwise", () => {
+    const local = { provider: "opencode", local: "Ollama" };
+    expect(markFor("opencode:ollama/qwen3.5:9b", { ...local, displayName: "qwen3.5:9b" })).toEqual({
+      lab: "alibaba",
+      harness: "ollama",
+      name: "qwen3.5:9b",
+    });
+    expect(markFor("opencode:ollama/bonsai-2:latest", { ...local, displayName: "bonsai-2:latest" })).toEqual({
+      harness: "ollama",
+      name: "bonsai-2:latest",
+    });
+    // the same id with no word that it is local is OpenCode's, as before
+    expect(
+      markFor("opencode:ollama/bonsai-2:latest", { provider: "opencode", displayName: "bonsai-2:latest" }),
+    ).toEqual({ harness: "opencode", name: "bonsai-2:latest" });
+  });
+});

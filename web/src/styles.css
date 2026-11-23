@@ -1336,8 +1336,10 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   flex-direction: column;
   align-items: center;
-  /* as wide as a conversation's composer row */
-  width: min(760px, 94%);
+  /* as wide as a conversation's composer row (.composer-row), dragons and
+     all, so the field is the width it will be once there is a conversation
+     — 736px with room, where 760px here left it 456px between the dragons */
+  width: min(1040px, 94%);
   padding-bottom: 6vh;
   user-select: none;
   animation: none;

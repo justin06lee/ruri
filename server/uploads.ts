@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as path from "node:path";
 import { configPath } from "./configDir.js";
+import { drawable, isHeic, jpegOf } from "./heic.js";
 import { mimeOf, UPLOAD_EXT, UPLOAD_MIME } from "./mime.js";
 import { MODEL_IMAGE_TYPES, type Attachment, type AttachmentUpload } from "../shared/protocol.js";
 import { isMissing, warn } from "./log.js";
@@ -46,8 +47,11 @@ export function storedFilePath(url: string): string {
   return path.join(uploadsDir(), path.basename(url));
 }
 
-/** Persist one upload; returns its serving URL and absolute file path. */
-export function storeUpload(upload: AttachmentUpload): { url: string; filePath: string } {
+/** Persist one upload; returns its serving URL and absolute file path. A
+ *  HEIC is kept as the JPEG of it (server/heic.ts): the window can draw
+ *  that, and the model can be shown it. */
+export function storeUpload(given: AttachmentUpload): { url: string; filePath: string } {
+  const upload = drawable(given);
   fs.mkdirSync(uploadsDir(), { recursive: true });
   const filePath = uploadPath(upload);
   fs.writeFileSync(filePath, Buffer.from(upload.data, "base64"));
@@ -56,7 +60,9 @@ export function storeUpload(upload: AttachmentUpload): { url: string; filePath: 
 
 /** Persist every upload; returns the archived attachment list (small URLs). */
 export function storeAttachments(uploads: AttachmentUpload[]): Attachment[] {
-  return uploads.map((upload) => {
+  return uploads.map((given) => {
+    // the archive names what was kept: a HEIC's JPEG, not the HEIC
+    const upload = drawable(given);
     const { url } = storeUpload(upload);
     const { data: _data, picture: _picture, regions, ...meta } = upload;
     // the crops were for the model; the boxes they were cut from stay with
@@ -85,7 +91,9 @@ export function modelPayload(
 ): { text: string; images: Array<{ data: string; mediaType?: string }> } {
   const images: Array<{ data: string; mediaType?: string }> = [];
   let outText = text;
-  for (const upload of uploads) {
+  for (const given of uploads) {
+    // a HEIC goes as the JPEG storeUpload kept of it
+    const upload = drawable(given);
     // An SVG, a BMP, … is a picture to the user and not one the model will
     // take: sent as it is, the whole image fails to load on its side. It is
     // shown the composer's PNG of it instead, and handed the original too —
@@ -152,22 +160,28 @@ const CORS: Record<string, string> = { "access-control-allow-origin": "*" };
  */
 export function serveUpload(req: http.IncomingMessage, res: http.ServerResponse, network = false): void {
   const name = (req.url ?? "").replace("/uploads/", "").split("?")[0] ?? "";
-  const filePath = path.join(uploadsDir(), path.basename(name));
-  try {
-    const stat = fs.statSync(filePath);
-    if (!stat.isFile()) throw new Error("not a file");
-    res.writeHead(200, {
-      ...CORS,
-      "content-type": mimeOf(filePath, UPLOAD_MIME),
-      "content-length": stat.size,
-      ...(network ? { "cache-control": "private, max-age=31536000, immutable" } : {}),
-    });
-    fs.createReadStream(filePath).pipe(res);
-  } catch (err) {
-    if (!isMissing(err)) warn("uploads", err, "serveUpload");
-    res.writeHead(404, CORS);
-    res.end();
-  }
+  const asked = path.join(uploadsDir(), path.basename(name));
+  const send = (filePath: string): void => {
+    try {
+      const stat = fs.statSync(filePath);
+      if (!stat.isFile()) throw new Error("not a file");
+      res.writeHead(200, {
+        ...CORS,
+        "content-type": mimeOf(filePath, UPLOAD_MIME),
+        "content-length": stat.size,
+        ...(network ? { "cache-control": "private, max-age=31536000, immutable" } : {}),
+      });
+      fs.createReadStream(filePath).pipe(res);
+    } catch (err) {
+      if (!isMissing(err)) warn("uploads", err, "serveUpload");
+      res.writeHead(404, CORS);
+      res.end();
+    }
+  };
+  // a HEIC kept before ruri converted them on the way in (or one nothing
+  // could convert then) goes out as its JPEG: no window draws the original
+  if (isHeic(asked)) void jpegOf(asked).then((jpeg) => send(jpeg ?? asked));
+  else send(asked);
 }
 
 /** An upload younger than this is left alone whatever refers to it: it may

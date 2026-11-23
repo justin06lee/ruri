@@ -7,6 +7,7 @@
 import { WebSocket } from "ws";
 import type { ServerMessage } from "../../shared/protocol.js";
 import type { ServerContext } from "../context.js";
+import { drawable, isHeicUpload } from "../heic.js";
 import { warn } from "../log.js";
 import { HOME_ID } from "../manager.js";
 import type { ModelRoles } from "../projects.js";
@@ -38,9 +39,13 @@ export const settingHandlers = {
   // and the sweep leaves it there for as long as a preference names it
   store_picture: (_ctx, ws, msg) => {
     let url: string | null = null;
-    if (msg.upload.mediaType.startsWith("image/") && msg.upload.mediaType !== "image/svg+xml") {
+    // a HEIC is kept as its JPEG, which is also how a composer gets one it
+    // can draw; one nothing here could convert is not kept at all
+    const upload = drawable(msg.upload);
+    const picture = upload.mediaType.startsWith("image/") && upload.mediaType !== "image/svg+xml";
+    if (picture && !isHeicUpload(upload)) {
       try {
-        url = storeUpload(msg.upload).url;
+        url = storeUpload(upload).url;
       } catch (err) {
         warn("settings", err, "store_picture");
       }

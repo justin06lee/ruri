@@ -29,6 +29,10 @@ export const IMAGE_MIME: Record<string, string> = {
   ".bmp": "image/bmp",
   ".svg": "image/svg+xml",
   ".avif": "image/avif",
+  // no window draws these as they are: one is served as the JPEG of it
+  // (server/heic.ts), under its own name
+  ".heic": "image/heic",
+  ".heif": "image/heif",
 };
 
 /** The extensions that count as an image, by the table above. */
@@ -58,6 +62,8 @@ export const UPLOAD_EXT: Record<string, string> = {
   "image/avif": "avif",
   "image/svg+xml": "svg",
   "image/bmp": "bmp",
+  "image/heic": "heic",
+  "image/heif": "heif",
   "video/mp4": "mp4",
   "video/quicktime": "mov",
   "video/webm": "webm",

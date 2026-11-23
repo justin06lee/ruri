@@ -24,6 +24,7 @@ import { fileToBase64 } from "../lib/files";
 import { highlightFor } from "../lib/highlighter";
 import { useLiveComponents } from "../lib/liveComponents";
 import { useNoteStale } from "../lib/runNote";
+import { isHeicFile } from "../pictures";
 import { probe, useGone, useThumb } from "../lib/thumbs";
 import { HTTP_BASE, send, useRuri } from "../store";
 
@@ -274,7 +275,9 @@ function Icon({ d }: { d: string }) {
 /** Send dropped, pasted or picked pictures to be kept with an entry. */
 async function addShots(projectId: string, componentId: string, list: File[]): Promise<void> {
   for (const file of list) {
-    if (!file.type.startsWith("image/")) continue;
+    // a HEIC goes as it is: the server keeps the JPEG of it
+    const heic = isHeicFile(file);
+    if (!file.type.startsWith("image/") && !heic) continue;
     send({
       type: "component_shot",
       projectId,
@@ -282,7 +285,7 @@ async function addShots(projectId: string, componentId: string, list: File[]): P
       upload: {
         id: crypto.randomUUID(),
         kind: "image",
-        mediaType: file.type,
+        mediaType: heic ? "image/heic" : file.type,
         name: file.name,
         n: 1,
         data: await fileToBase64(file),

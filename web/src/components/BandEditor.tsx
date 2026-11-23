@@ -17,7 +17,7 @@ import {
   type BandPicture,
   type HoverEffect,
 } from "../band";
-import { loadPicture, pictureUrl, storePicture, usePicture } from "../pictures";
+import { isHeicFile, loadPicture, pictureUrl, storePicture, usePicture } from "../pictures";
 import type { Theme } from "../theme";
 import { useConfirm } from "./Confirm";
 import { Dropdown } from "./Dropdown";
@@ -310,7 +310,7 @@ export function BandEditor() {
       <input
         ref={fileRef}
         type="file"
-        accept="image/png,image/jpeg,image/gif,image/webp,image/avif,image/apng,image/svg+xml"
+        accept="image/png,image/jpeg,image/gif,image/webp,image/avif,image/apng,image/svg+xml,image/heic,image/heif,.heic,.heif"
         hidden
         onChange={(e) => onPicked([...(e.target.files ?? [])])}
       />
@@ -331,7 +331,7 @@ export function BandEditor() {
         }}
         onDrop={(e) => {
           e.preventDefault();
-          void add([...e.dataTransfer.files].filter((f) => f.type.startsWith("image/")));
+          void add([...e.dataTransfer.files].filter((f) => f.type.startsWith("image/") || isHeicFile(f)));
         }}
       >
         <div

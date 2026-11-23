@@ -3,6 +3,7 @@ import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { TranscriptEvent } from "../shared/protocol.js";
+import { isHeic, jpegOf } from "./heic.js";
 import { isMissing, warn } from "./log.js";
 import { IMAGE_MIME, mimeOf } from "./mime.js";
 
@@ -88,20 +89,25 @@ export class ReadableImages {
       res.end();
       return;
     }
-    try {
-      const stat = fs.statSync(filePath);
-      if (!stat.isFile()) throw new Error("not a file");
-      res.writeHead(200, {
-        "content-type": mimeOf(filePath, IMAGE_MIME),
-        "content-length": stat.size,
-        // the file can be overwritten in place between reads
-        "cache-control": "no-cache",
-      });
-      fs.createReadStream(filePath).pipe(res);
-    } catch (err) {
-      if (!isMissing(err)) warn("server", err, "serveReadFile");
-      res.writeHead(404);
-      res.end();
-    }
+    const send = (file: string): void => {
+      try {
+        const stat = fs.statSync(file);
+        if (!stat.isFile()) throw new Error("not a file");
+        res.writeHead(200, {
+          "content-type": mimeOf(file, IMAGE_MIME),
+          "content-length": stat.size,
+          // the file can be overwritten in place between reads
+          "cache-control": "no-cache",
+        });
+        fs.createReadStream(file).pipe(res);
+      } catch (err) {
+        if (!isMissing(err)) warn("server", err, "serveReadFile");
+        res.writeHead(404);
+        res.end();
+      }
+    };
+    // a HEIC is drawn by no window: its JPEG goes in its place
+    if (isHeic(filePath)) void jpegOf(filePath).then((jpeg) => send(jpeg ?? filePath));
+    else send(filePath);
   }
 }

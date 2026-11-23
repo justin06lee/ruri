@@ -75,9 +75,10 @@ export function sidebarLines(
             : mark === "unread"
               ? paint.accent("◆")
               : paint.soft("z");
-    const name = row.kind === "home" ? "Home" : `${row.inFolder ? "  " : ""}${row.name}`;
+    // a folder's projects stand in from its name, a star just before its own
     const star = row.kind === "project" && row.starred ? "★ " : "";
-    const body = pad(`${star}${name}`, Math.max(1, width - 4));
+    const name = row.kind === "home" ? "Home" : `${row.inFolder ? "  " : ""}${star}${row.name}`;
+    const body = pad(name, Math.max(1, width - 4));
     const text = `${active ? paint.accent("▌") : " "}${active ? paint.bold(body) : body} ${sign} `;
     return on ? paint.inverse(text) : text;
   });

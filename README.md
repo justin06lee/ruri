@@ -33,6 +33,7 @@ For development:
 bun install
 bun run dev       # browser mode: server on :7777, UI at http://localhost:5173
 bun run desktop   # the desktop app unpackaged (built UI + Electron)
+bun run tui       # ruri in a terminal, onto the ruri that is running (--port 7777 for `bun run dev`)
 ```
 
 On a Linux that restricts unprivileged user namespaces (Ubuntu 24.04 and later), an unpackaged Electron has no AppArmor profile, so its sandbox cannot start: run it as `bun run desktop -- --no-sandbox` (the installed app has its profile).
@@ -62,6 +63,7 @@ On a Linux that restricts unprivileged user namespaces (Ubuntu 24.04 and later),
 - **A clean, borderless look**: the system font, light, dark and ember themes on a clock, thin usage gauges for context and account limits, the peek band in the title bar (a mountain path by day on light, under the stars on dark and at sunset on ember — or any pictures and GIFs you give it, each with its own hover and themes), the marks of whoever made the chat's model doodled over every empty chat (Anthropic × Claude, OpenAI × ChatGPT, Google × Gemini and the rest), and a music player in the sidebar.
 - **Settings → Permissions** shows every macOS grant as macOS actually holds it.
 - **ruri on your iPhone** — ruri's own look, made for a thumb: what needs you, then every project as your sidebar arranges it — folders, order and stars, rearranged from a handle on each row and kept in step with the Mac; tap one to read its chat live and talk to it. Prompts queue behind a running turn as cards over the field; hold one to send it now, hold the send button to cut in, or stop the turn. A chat waiting on you shows its card: allow or deny a tool, answer a question. A chat's model and reasoning level are picked in its prompt box, local models included. Your usage limits per account, and a project moved to another account in one tap. Paste words, pictures or files, and pick light, dark or ember. Paired by a QR code from Settings → Devices, with as many computers as you like and switched between from home; away from home, over Tailscale ([ios/README.md](ios/README.md)).
+- **ruri in a terminal** — `ruri tui` is the desktop window drawn in a terminal, onto the same running ruri: your projects down the left in your own order and folders, each chat's mark (working, waiting on you, failed, unread); the open chat live, its markdown laid out for a terminal, tool steps one line each until you open one, patches in green and red; the prompt box with the model, account, effort and permission pickers under it; the queue above it, where Enter on a prompt sends it now; permission and question cards answered from the keys; the context and account gauges on the top line; Ctrl+K to go to a project by a few letters of its name. A prompt half-typed there is the same draft the desktop and the phone hold. `?` lists the keys ([docs/features.md](docs/features.md)).
 - **Shortcuts by platform** — ⌘ on a Mac is Ctrl on Linux (Ctrl+K for the switcher, Ctrl+Enter to cut in); the terminals' tabs are Ctrl+Shift+T and Alt+1–9 there, as in GNOME Terminal.
 
 The long form, one bullet per capability: [docs/features.md](docs/features.md).

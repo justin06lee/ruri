@@ -31,6 +31,12 @@ export default tseslint.config(
     },
   },
   {
+    // the terminal window is React too (Ink), with no fast refresh to keep
+    files: ["tui/src/**/*.{ts,tsx}"],
+    plugins: { "react-hooks": reactHooks },
+    rules: reactHooks.configs.flat.recommended.rules,
+  },
+  {
     rules: {
       // `catch {}` with a comment saying why is the house style; the
       // rule cannot see the comment

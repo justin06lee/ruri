@@ -63,6 +63,32 @@ await build({
 });
 
 /**
+ * ruri in a terminal (tui/src/main.tsx → tui.mjs): what `ruri tui` runs,
+ * with the app's own Electron as plain Node (server/library.ts tuiCommand).
+ * A bundle of its own, so the server never loads Ink and the terminal never
+ * loads the server. Ink asks for react-devtools-core only when told to
+ * debug, which a shipped build never is: an empty module stands in.
+ */
+await build({
+  entryPoints: { tui: "tui/src/main.tsx" },
+  bundle: true,
+  platform: "node",
+  format: "esm",
+  target: "node20",
+  jsx: "automatic",
+  outdir: "dist-electron",
+  outExtension: { ".js": ".mjs" },
+  alias: { "react-devtools-core": path.resolve("tui/src/no-devtools.ts") },
+  define: { "process.env.NODE_ENV": '"production"' },
+  minify: true,
+  legalComments: "none",
+  banner: {
+    js: 'import { createRequire as __ruriCreateRequire } from "node:module"; const require = __ruriCreateRequire(import.meta.url);',
+  },
+  logLevel: "info",
+});
+
+/**
  * The window's preload (desktop/preload.ts): CommonJS, on its own — a
  * sandboxed preload is a script, not a module, and gets `require("electron")`
  * and nothing more.

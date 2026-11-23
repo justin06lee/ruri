@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { Animate } from "./lib/effects";
 import { isAwake, subscribeAwake } from "./lib/awake";
+import type { AttachmentUpload } from "../../shared/protocol";
 import { HTTP_BASE, send } from "./store";
 
 /**
@@ -145,6 +146,47 @@ function base64(blob: Blob): Promise<string> {
   });
 }
 
+/** A HEIC or HEIF — what an iPhone's camera writes, and nothing this window
+ *  can draw. By its name too: a file picker often gives one no type. */
+export function isHeicFile(file: File): boolean {
+  return /^image\/hei[cf](-sequence)?$/i.test(file.type) || /\.hei[cf]$/i.test(file.name);
+}
+
+/** Hand the server an upload and wait for where it is served from. */
+function stored(upload: AttachmentUpload): Promise<string | null> {
+  return new Promise((resolve) => {
+    waiting.set(upload.id, resolve);
+    setTimeout(() => pictureStored(upload.id, null), 60_000);
+    send({ type: "store_picture", upload });
+  });
+}
+
+/**
+ * The JPEG of a HEIC, made by the computer ruri runs on (server/heic.ts) —
+ * a file like any other picture from there on: the composer can draw it,
+ * boxes can be drawn on it, and the model is shown it. Null when it could
+ * not be made; the caller goes on with the original.
+ */
+export async function heicAsJpeg(file: File): Promise<File | null> {
+  try {
+    const url = await stored({
+      id: crypto.randomUUID(),
+      kind: "image",
+      mediaType: "image/heic",
+      name: file.name,
+      n: 0,
+      data: await base64(file),
+    });
+    if (!url) return null;
+    const res = await fetch(HTTP_BASE + url);
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return new File([blob], file.name.replace(/\.hei[cf]$/i, "") + ".jpg", { type: "image/jpeg" });
+  } catch {
+    return null;
+  }
+}
+
 const EXT: Record<string, string> = {
   "image/png": "png",
   "image/apng": "png",
@@ -161,20 +203,20 @@ const EXT: Record<string, string> = {
  * used.
  */
 export async function storePicture(file: File, kind: "band"): Promise<string> {
-  if (!file.type.startsWith("image/")) throw new Error(`${file.name} is not a picture`);
+  if (!file.type.startsWith("image/") && !isHeicFile(file)) throw new Error(`${file.name} is not a picture`);
   if (file.size > MAX_PICTURE_BYTES) throw new Error(`${file.name} is over 25 MB`);
+  // a HEIC goes as it is: the server keeps the JPEG of it
+  const heic = isHeicFile(file);
   const blob = file.type === "image/svg+xml" ? await rasterize(file) : file;
-  const ext = EXT[blob.type];
+  const ext = heic ? "heic" : EXT[blob.type];
   if (!ext) throw new Error(`${file.name} is not a kind of picture ruri can show`);
-  const id = crypto.randomUUID();
-  const data = await base64(blob);
-  const url = await new Promise<string | null>((resolve) => {
-    waiting.set(id, resolve);
-    setTimeout(() => pictureStored(id, null), 60_000);
-    send({
-      type: "store_picture",
-      upload: { id, kind: "image", mediaType: blob.type, name: `${kind}.${ext}`, n: 0, data },
-    });
+  const url = await stored({
+    id: crypto.randomUUID(),
+    kind: "image",
+    mediaType: heic ? "image/heic" : blob.type,
+    name: `${kind}.${ext}`,
+    n: 0,
+    data: await base64(blob),
   });
   if (!url) throw new Error(`${file.name} could not be kept`);
   return url;

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { HOME_ID } from "../../../shared/protocol";
 import { attachFile, replaceAttachmentFile, useRuri } from "../store";
 import { MOD } from "../lib/keys";
+import { heicAsJpeg, isHeicFile } from "../pictures";
 
 /**
  * The sketch pad: draw a thing to show the model, or draw on a picture to
@@ -744,11 +745,16 @@ export function Sketch({
 
   const openPicture = (files: FileList | null) => {
     const file = files?.[0];
-    if (!file || !file.type.startsWith("image/")) return;
-    setName(file.name);
-    setShapes([]);
-    setHistory([]);
-    setPictureUrl(URL.createObjectURL(file));
+    if (!file) return;
+    const open = (picture: File) => {
+      setName(picture.name);
+      setShapes([]);
+      setHistory([]);
+      setPictureUrl(URL.createObjectURL(picture));
+    };
+    // a HEIC is drawn on as the JPEG of it: the window cannot draw the original
+    if (isHeicFile(file)) void heicAsJpeg(file).then((jpeg) => jpeg && open(jpeg));
+    else if (file.type.startsWith("image/")) open(file);
   };
 
   const writingSize = SIZES.find((s) => s.id === writing?.size) ?? SIZES[1]!;

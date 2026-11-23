@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { HOME_ID, MODEL_IMAGE_TYPES, type AttachmentUpload, type Project } from "../../../shared/protocol";
 import { fileToBase64 } from "../lib/files";
 import { keepLocal } from "../lib/localFiles";
+import { heicAsJpeg, isHeicFile } from "../pictures";
 import {
   clearComposerDraft,
   composerDrafts,
@@ -248,12 +249,23 @@ export function Composer({
   /** Attach files; `at` places the [markers] at that text index (a drop's
    *  caret position or the paste caret) instead of the end. */
   const { confirm: ask, card } = useConfirm();
-  const addFiles = (files: FileList | File[], at?: number) => {
-    const added: ComposerAttachment[] = [];
-    const tooBig = [...files].filter((file) => file.size > 25 * 1024 * 1024);
+  const addFiles = (given: FileList | File[], at?: number) => {
+    // copied now: a file input's list empties when the input is cleared
+    const picked = [...given];
+    const tooBig = picked.filter((file) => file.size > 25 * 1024 * 1024);
     if (tooBig.length) void ask(tooBigNotice(tooBig));
+    const files = picked.filter((file) => !tooBig.includes(file));
+    // A HEIC (an iPhone photo) is a picture this window cannot draw and the
+    // model will not take: it is attached as the JPEG of it, which takes a
+    // moment to come back. Anything else is attached at once, as ever.
+    if (!files.some(isHeicFile)) return attach(files, at);
+    void Promise.all(
+      files.map(async (file) => (isHeicFile(file) ? ((await heicAsJpeg(file)) ?? file) : file)),
+    ).then((ready) => attach(ready, at));
+  };
+  const attach = (files: File[], at?: number) => {
+    const added: ComposerAttachment[] = [];
     for (const file of files) {
-      if (tooBig.includes(file)) continue;
       const kind = fileKind(file);
       const n = ++counter.current[kind];
       added.push({

@@ -88,6 +88,14 @@ describe("the compaction brief", () => {
     expect(built.entries.map((e) => e.n)).toEqual([1, 2, 3, 4, 5, 6]);
   });
 
+  test("a digest with nothing in it — what a /clear leaves — tells nothing", () => {
+    const built = buildCompaction("chat-clear", conversation(2), {}, { through: "from-before-the-clear" })!;
+    // the block itself: the intro's own words name it either way
+    expect(built.brief).not.toContain("</condensed>");
+    expect(built.digest).toBeUndefined();
+    expect(built.entries).toHaveLength(2);
+  });
+
   test("a short conversation is all at length, and needs no git to be briefed", () => {
     const brief = buildCompaction("chat-2", conversation(2), {})!.brief;
     expect(brief).not.toContain("1. user: the peek band");

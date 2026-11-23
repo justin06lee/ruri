@@ -52,8 +52,24 @@ describe("splitCommands", () => {
   });
 
   test("a harness command is only a command on its own line", () => {
-    const text = "please /clear the way and go";
+    const text = "please /review the way and go";
     expect(splitCommands(text, known)).toEqual({ commands: [], rest: text });
+  });
+
+  test("/clear is ruri's own, and counts only at the head of a line", () => {
+    expect(splitCommands("/clear", known)).toEqual({ commands: ["/clear"], rest: "" });
+    expect(splitCommands("/clear now build the ledger", known)).toEqual({
+      commands: ["/clear"],
+      rest: "now build the ledger",
+    });
+    expect(splitCommands("first this\n  /clear\nthen that", known)).toEqual({
+      commands: ["/clear"],
+      rest: "first this\n\nthen that",
+    });
+    // a route, a path, a word in a sentence: never a clear
+    for (const text of ["the /clear route 404s", "please /clear the way and go", "see docs/clear"]) {
+      expect(splitCommands(text, known)).toEqual({ commands: [], rest: text });
+    }
   });
 
   test("a quoted command is a mention of it, not a use", () => {
@@ -100,7 +116,8 @@ describe("splitCommands", () => {
   test("with nothing else known, only ruri's own are lifted", () => {
     // ruri's commands are always there; the rest have to be known
     expect(splitCommands("/compact", new Set())).toEqual({ commands: ["/compact"], rest: "" });
-    expect(splitCommands("/clear", new Set())).toEqual({ commands: [], rest: "/clear" });
+    expect(splitCommands("/clear", new Set())).toEqual({ commands: ["/clear"], rest: "" });
+    expect(splitCommands("/review", new Set())).toEqual({ commands: [], rest: "/review" });
   });
 });
 
@@ -148,7 +165,8 @@ describe("the catalog of commands", () => {
       kind: "ruri",
       description: expect.stringContaining("compacts"),
     });
-    expect(listed.find((c) => c.name === "clear")?.kind).toBe("harness");
+    expect(listed.find((c) => c.name === "clear")?.kind).toBe("ruri");
+    expect(listed.find((c) => c.name === "review")?.kind).toBe("harness");
     expect(listed.find((c) => c.name === "ruri-test-local")).toEqual({
       name: "ruri-test-local",
       kind: "custom",

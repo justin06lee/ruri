@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { MemoryPart, TranscriptEvent } from "../shared/protocol.js";
+import { sinceClear, type MemoryPart, type TranscriptEvent } from "../shared/protocol.js";
 import { layerNotes, layerOfFile, layered } from "./brief.js";
 import { memoryLineText } from "./brief.js";
 import { chatLayers, sourceLabel } from "./catchupBrief.js";
@@ -191,7 +191,8 @@ export function withRelevance(ctx: ServerContext, channelId: string, brief: stri
  * all of it when the prompt is not in the transcript yet.
  */
 function conversationBefore(ctx: ServerContext, channelId: string, current?: string): TranscriptEvent[] {
-  const all = ctx.archive.allEvents(channelId);
+  // never from before a /clear: what the user cleared is not told again
+  const all = sinceClear(ctx.archive.allEvents(channelId));
   const at = current ? all.findIndex((event) => event.id === current) : -1;
   return at === -1 ? all : all.slice(0, at);
 }
@@ -199,9 +200,14 @@ function conversationBefore(ctx: ServerContext, channelId: string, current?: str
 /** Whether the chat has any exchange before `current` — asked of the live
  *  part first, so a new chat's first prompt reads no history. */
 function hasEarlierExchange(ctx: ServerContext, channelId: string, current?: string): boolean {
-  return (
-    ctx.archive.events(channelId).some((event) => event.kind === "user" && event.id !== current) ||
-    ctx.archive.hasHistory(channelId)
+  const live = ctx.archive.events(channelId);
+  if (live.some((event) => event.kind === "user" && event.id !== current)) return true;
+  // cleared, and nothing said since: the history is all from before it
+  if (live.some((event) => event.kind === "compaction" && event.cleared)) return false;
+  if (!ctx.archive.hasHistory(channelId)) return false;
+  // a /clear further back, under a later compaction: only what followed it
+  return sinceClear(ctx.archive.allEvents(channelId)).some(
+    (event) => event.kind === "user" && event.id !== current,
   );
 }
 
@@ -337,7 +343,7 @@ export function afterCompactBrief(ctx: ServerContext, channelId: string): string
   try {
     return buildAfterCompaction(
       channelId,
-      ctx.archive.allEvents(channelId),
+      sinceClear(ctx.archive.allEvents(channelId)),
       ctx.archive.summaries(channelId),
       briefContext(ctx, channelId),
     );

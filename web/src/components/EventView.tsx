@@ -67,6 +67,23 @@ export function CompactionMark({
 }) {
   const [open, setOpen] = useState(false);
   const bodiless = !event.entries?.length && !event.text;
+  // a /clear: nothing was handed on, so there is nothing to unfold
+  if (event.cleared) {
+    return (
+      <div className="compaction">
+        <div className="compaction-line">
+          <ZigzagRule />
+          <span
+            className="compaction-label"
+            title="/clear: the session below started fresh, with nothing of what is above"
+          >
+            cleared
+          </span>
+          <ZigzagRule />
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="compaction">
       <div className="compaction-line">

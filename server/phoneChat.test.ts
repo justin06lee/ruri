@@ -84,6 +84,20 @@ describe("phoneItems", () => {
   });
 });
 
+describe("a cleared chat on the phone", () => {
+  test("says where it was cleared; a compaction's own mark stays unseen", () => {
+    const items = phoneItems([
+      { kind: "compaction", id: "c1", text: "", cleared: true, ts: 1 },
+      { kind: "user", id: "u1", text: "hello again", ts: 2 },
+      { kind: "compaction", id: "c2", text: "a brief", ts: 3 },
+    ]);
+    expect(items.map((item) => [item.kind, item.text])).toEqual([
+      ["note", "Cleared: a fresh start from here"],
+      ["user", "hello again"],
+    ]);
+  });
+});
+
 describe("nextFrame", () => {
   const frame = (items: { id: string; text: string }[]): PhoneChatFrame => ({
     chat: "c",

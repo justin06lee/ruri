@@ -140,6 +140,13 @@ describe("a chat as lines", () => {
     expect(eventLines(event, 60, true)[1]).toBe("  what came before");
   });
 
+  test("a /clear is a rule that says so, with nothing to open", () => {
+    const event: TranscriptEvent = { kind: "compaction", id: "c", text: "", cleared: true, ts: 0 };
+    expect(eventLines(event, 60, false)).toHaveLength(1);
+    expect(eventLines(event, 60, false)[0]).toContain("cleared — a fresh start from here");
+    expect(eventLines(event, 60, true)).toHaveLength(1);
+  });
+
   test("a plan lists its steps", () => {
     const event: TranscriptEvent = {
       kind: "plan",

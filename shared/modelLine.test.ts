@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { catalogDefault, compareVersions, modelLine, newestInLine, supersededBy } from "./modelLine.js";
+import {
+  catalogDefault,
+  compareVersions,
+  modelLine,
+  newestInLine,
+  relisted,
+  supersededBy,
+} from "./modelLine.js";
 import type { ModelChoice } from "./protocol.js";
 
 /** Claude's catalog as its CLI lists it: aliases named by what they
@@ -105,6 +112,28 @@ describe("a newer model arriving", () => {
     expect(supersededBy(late, known, "claude-fable-4-9")).toBeUndefined();
     const first = [...CATALOG, { value: "claude-mythos-1", displayName: "Mythos 1" }];
     expect(supersededBy(first, known, "claude-mythos-1")).toBeUndefined();
+  });
+});
+
+describe("a model the catalog lists under another id now", () => {
+  const renamed: ModelChoice[] = [
+    { value: "opus", displayName: "Opus 5.5" },
+    { value: "fable", displayName: "Fable 5.2" },
+    { value: "codex:gpt-5.6-sol", displayName: "GPT-5.6 Sol", provider: "codex" },
+  ];
+
+  test("is found by its line and version", () => {
+    expect(relisted(renamed, "claude-fable-5-2")).toBe("fable");
+    expect(relisted(renamed, "claude-opus-5-5")).toBe("opus");
+  });
+
+  test("but not while it is still listed, at another version, or in another line", () => {
+    expect(relisted(renamed, "fable")).toBeUndefined();
+    expect(relisted(renamed, "claude-fable-5-1")).toBeUndefined();
+    expect(relisted(renamed, "claude-fable-5-2[1m]")).toBeUndefined();
+    expect(relisted(renamed, "codex:gpt-5.6-luna")).toBeUndefined();
+    // an alias gone from the catalog says nothing of which model it was
+    expect(relisted(renamed, "sonnet")).toBeUndefined();
   });
 });
 

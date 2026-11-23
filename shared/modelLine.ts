@@ -120,6 +120,24 @@ export function supersededBy(
 }
 
 /**
+ * The id the catalog now lists a model under, when it no longer lists
+ * `id`: the first of the same line at the very same version. A harness
+ * renames what it lists ("claude-fable-5-2" one day, the alias "fable"
+ * named "Fable 5.2" the next), and a star or a default left on the old id
+ * would stand on a model nobody is offered. Undefined when `id` is still
+ * listed, says nothing of its version, or has no such twin.
+ */
+export function relisted(catalog: readonly Named[], id: string): string | undefined {
+  if (catalog.some((m) => m.value === id)) return undefined;
+  const mine = modelLine({ value: id, displayName: "" });
+  if (mine.version.length === 0) return undefined;
+  return catalog.find((model) => {
+    const other = modelLine(model);
+    return other.line === mine.line && compareVersions(other.version, mine.version) === 0;
+  })?.value;
+}
+
+/**
  * The model the catalog itself would start a chat on: the one Claude Code
  * marks as its default, else the first it lists — and with no Claude on the
  * machine, the same of whatever harness is. Undefined for an empty catalog.

@@ -6,7 +6,7 @@ import { writeTextAtomic } from "./atomic.js";
 import { configDir } from "./configDir.js";
 import { foldName } from "./finder.js";
 import { isMissing, warn } from "./log.js";
-import { catalogDefault, newestInLine, supersededBy } from "../shared/modelLine.js";
+import { catalogDefault, newestInLine, relisted, supersededBy } from "../shared/modelLine.js";
 import {
   addFolder,
   firstLayout,
@@ -316,6 +316,22 @@ export class ProjectStore {
       }
       if (dirty) this.knownModels = [...new Set([...this.knownModels, ...listed])];
     }
+    // a star or a role on an id the catalog has stopped listing follows the
+    // same model to the id it is listed under now (shared/modelLine.ts
+    // relisted): otherwise the catalog page shows it twice, one of them
+    // offered nowhere
+    const now = (id: string | undefined) => (id ? relisted(models, id) : undefined);
+    if (this.starredModelIds.some((id) => now(id))) {
+      this.starredModelIds = [...new Set(this.starredModelIds.map((id) => now(id) ?? id))];
+      moved = true;
+    }
+    const small = now(this.smallModelId);
+    const crowned = now(this.defaultModelId);
+    const memory = now(this.memoryModelId);
+    if (small) this.smallModelId = small;
+    if (crowned) this.defaultModelId = crowned;
+    if (memory) this.memoryModelId = memory;
+    moved ||= Boolean(small || crowned || memory);
     if (dirty || moved) this.save();
     return moved;
   }

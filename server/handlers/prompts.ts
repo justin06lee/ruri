@@ -399,13 +399,17 @@ export const promptHandlers = {
     // a just-sent transcript event points at.
     const before = ctx.drafts.get(msg.projectId)?.text ?? "";
     const held = ctx.drafts.get(msg.projectId)?.attachments ?? [];
-    const attachments = msg.attachments?.flatMap((att) => {
-      const { data, regions, ...meta } = att;
-      const drawn = regions?.length ? { regions } : {};
-      if (data) return [{ ...meta, ...drawn, url: storeUpload({ ...meta, data }).url }];
-      const stored = held.find((h) => h.id === att.id);
-      return stored ? [{ ...meta, ...drawn, url: stored.url }] : [];
-    });
+    // A client that says nothing of files (the terminal, which carries
+    // words alone) changes the words and leaves the files clipped to them.
+    const attachments = msg.attachments
+      ? msg.attachments.flatMap((att) => {
+          const { data, regions, ...meta } = att;
+          const drawn = regions?.length ? { regions } : {};
+          if (data) return [{ ...meta, ...drawn, url: storeUpload({ ...meta, data }).url }];
+          const stored = held.find((h) => h.id === att.id);
+          return stored ? [{ ...meta, ...drawn, url: stored.url }] : [];
+        })
+      : held;
     ctx.drafts.set(msg.projectId, msg.text, attachments);
     // every other window, and the phone at its next frame, writes on
     // from here

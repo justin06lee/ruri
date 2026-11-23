@@ -556,6 +556,25 @@ describe("a prompt box the same on every device", () => {
     expect(w.told.length).toBe(1);
   });
 
+  test("written in a terminal, which says nothing of files, the files already there are kept", () => {
+    const w = world();
+    w.drafts.set("c", { text: "look at this", attachments: [{ id: "f1" }] });
+    void promptHandlers.draft(w.ctx, w.window("a"), {
+      type: "draft",
+      projectId: "c",
+      text: "look at this one",
+    });
+    expect(w.drafts.get("c")).toEqual({ text: "look at this one", attachments: [{ id: "f1" }] });
+    // a window that does list its files, and lists none, has dropped them
+    void promptHandlers.draft(w.ctx, w.window("a"), {
+      type: "draft",
+      projectId: "c",
+      text: "",
+      attachments: [],
+    });
+    expect(w.drafts.get("c")).toEqual({ text: "", attachments: [] });
+  });
+
   test("written on the phone, every window is told, the files already there kept", () => {
     const w = world();
     w.drafts.set("c", { text: "", attachments: [{ id: "f1" }] });

@@ -8,6 +8,7 @@ import { ComponentStore } from "./components.js";
 import {
   cliEnv,
   installCli,
+  tuiCommand,
   isUiFile,
   parseArgs,
   planCopy,
@@ -720,5 +721,54 @@ describe("the shell command", () => {
       refused = err as typeof refused;
     }
     expect(refused.status).toBe(2);
+  });
+
+  test("`ruri tui` starts the terminal window from anywhere, with the arguments it was given", () => {
+    // outside any session: no RURI_LIBRARY, and it still runs
+    const outside = { ...process.env, PATH: cliEnv("x").PATH, RURI_LIBRARY: "" };
+    try {
+      installCli("echo started");
+      expect(execFileSync("ruri", ["tui", "--port", "7 7"], { env: outside, encoding: "utf8" })).toBe(
+        "started --port 7 7\n",
+      );
+      installCli(null);
+      let refused: { status?: number; stderr?: string } = {};
+      try {
+        execFileSync("ruri", ["tui"], { env: outside, stdio: "pipe", encoding: "utf8" });
+      } catch (err) {
+        refused = err as typeof refused;
+      }
+      expect(refused.status).toBe(2);
+      expect(refused.stderr).toContain("no terminal window");
+    } finally {
+      installCli();
+    }
+  });
+
+  test("the terminal window is the app's bundle run by the app, or a checkout's source run by bun", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-tui-"));
+    try {
+      // nothing to run
+      expect(
+        tuiCommand(path.join(dir, "dist"), "/Applications/ruri.app/Contents/MacOS/ruri"),
+      ).toBeUndefined();
+      // a checkout: server/ beside tui/src/main.tsx
+      fs.mkdirSync(path.join(dir, "it's here", "server"), { recursive: true });
+      fs.mkdirSync(path.join(dir, "it's here", "tui", "src"), { recursive: true });
+      fs.writeFileSync(path.join(dir, "it's here", "tui", "src", "main.tsx"), "");
+      expect(tuiCommand(path.join(dir, "it's here", "server"), undefined)).toBe(
+        `bun '${path.join(dir, "it'\\''s here", "tui", "src", "main.tsx")}'`,
+      );
+      // the app: the bundle beside the server's, run by the app's own binary
+      fs.mkdirSync(path.join(dir, "dist"));
+      fs.writeFileSync(path.join(dir, "dist", "tui.mjs"), "");
+      expect(tuiCommand(path.join(dir, "dist"), "/Applications/ruri.app/Contents/MacOS/ruri")).toBe(
+        `env ELECTRON_RUN_AS_NODE=1 '/Applications/ruri.app/Contents/MacOS/ruri' '${path.join(dir, "dist", "tui.mjs")}'`,
+      );
+      // a bundle with no app to run it is not a way to start it
+      expect(tuiCommand(path.join(dir, "dist"), undefined)).toBeUndefined();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

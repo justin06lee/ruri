@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   componentStale,
   type Attachment,
@@ -1623,9 +1624,14 @@ export function cliDir(): string {
  * server the session belongs to ($RURI_LIBRARY, set per session) and print
  * the answer. curl does the encoding, so any argument survives the trip.
  */
-const CLI = `#!/bin/sh
-# ruri's component library, for agents in a session ruri started
-# (server/library.ts). \`ruri help\` says what it does.
+const cli = (tui: string | null) => `#!/bin/sh
+# ruri's command (server/library.ts). \`ruri tui\` is ruri in a terminal,
+# for anyone; the rest is the component library and the project's memory,
+# for agents in a session ruri started: \`ruri help\` says what it does.
+if [ "$1" = "tui" ]; then
+  shift
+  ${tui ? `exec ${tui} "$@"` : 'echo "ruri tui: this build of ruri has no terminal window" >&2; exit 2'}
+fi
 if [ -z "$RURI_LIBRARY" ]; then
   echo "ruri: this works inside a session ruri started" >&2
   exit 2
@@ -1646,13 +1652,34 @@ printf '%s\\n' "\${reply%"$nl"*}"
 [ "$status" = 200 ]
 `;
 
+/** A word for sh, whatever is in it. */
+const quoted = (word: string) => `'${word.replace(/'/g, `'\\''`)}'`;
+
+/**
+ * How this build starts ruri in a terminal (tui/src/main.tsx), as words
+ * for sh. The app carries it as a bundle beside the server's own, run by
+ * the app's Electron as plain Node (RURI_APP_EXE: desktop/serverProcess.ts);
+ * a checkout runs the source with bun. None when neither is there.
+ */
+export function tuiCommand(
+  here = path.dirname(fileURLToPath(import.meta.url)),
+  exe = process.env["RURI_APP_EXE"],
+): string | undefined {
+  const bundle = path.join(here, "tui.mjs");
+  if (exe && fs.existsSync(bundle)) return `env ELECTRON_RUN_AS_NODE=1 ${quoted(exe)} ${quoted(bundle)}`;
+  const source = path.join(here, "..", "tui", "src", "main.tsx");
+  if (fs.existsSync(source)) return `bun ${quoted(path.normalize(source))}`;
+  return undefined;
+}
+
 /** Put the command where sessions will find it, if it isn't there as is. */
-export function installCli(): void {
+export function installCli(tui: string | null = tuiCommand() ?? null): void {
   const file = path.join(cliDir(), "ruri");
+  const text = cli(tui);
   try {
-    if (fs.existsSync(file) && fs.readFileSync(file, "utf8") === CLI) return;
+    if (fs.existsSync(file) && fs.readFileSync(file, "utf8") === text) return;
     fs.mkdirSync(cliDir(), { recursive: true });
-    fs.writeFileSync(file, CLI, { mode: 0o755 });
+    fs.writeFileSync(file, text, { mode: 0o755 });
     fs.chmodSync(file, 0o755);
   } catch (err) {
     warn("library", err, "installCli");

@@ -91,7 +91,9 @@ export class ServerProcess {
       const child = utilityProcess.fork(this.entry, [], {
         serviceName: "ruri server",
         stdio: "inherit",
-        env: { ...process.env },
+        // the app's own binary: what `ruri tui` runs the terminal window
+        // with, as plain Node (server/library.ts tuiCommand)
+        env: { ...process.env, RURI_APP_EXE: process.execPath },
       });
       this.child = child;
       this.startedAt = Date.now();

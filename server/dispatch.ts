@@ -5,7 +5,13 @@
  * tried again) and ruri's own /compact.
  */
 import { randomUUID } from "node:crypto";
-import { leadOf, type AttachmentUpload, type LetterFrom, type TranscriptEvent } from "../shared/protocol.js";
+import {
+  leadOf,
+  sinceClear,
+  type AttachmentUpload,
+  type LetterFrom,
+  type TranscriptEvent,
+} from "../shared/protocol.js";
 import { busy, channelProject, ownerProject, running } from "./channel.js";
 import { pushTranscript } from "./clients.js";
 import { knownCommands, splitCommands } from "./commands.js";
@@ -64,6 +70,12 @@ export function dispatch(
   // the user's to ask for, never another agent's
   if (!silent && !from && text.trim() === "/compact" && uploads.length === 0) {
     compactChannel(ctx, channelId);
+    return undefined;
+  }
+  // /clear is ruri's own too: the harness's would clear its session and
+  // leave ruri to hand the conversation straight back as a brief
+  if (!silent && !from && text.trim() === "/clear" && uploads.length === 0) {
+    clearChannel(ctx, channelId);
     return undefined;
   }
   // a worker's letter that starts a task starts it in a fresh session, on
@@ -601,7 +613,7 @@ export function compactChannel(ctx: ServerContext, channelId: string, why?: stri
   }
   const built = buildCompaction(
     channelId,
-    ctx.archive.allEvents(channelId),
+    sinceClear(ctx.archive.allEvents(channelId)),
     ctx.archive.summaries(channelId),
     ctx.archive.digest(channelId),
     briefContext(ctx, channelId),
@@ -636,5 +648,48 @@ export function compactChannel(ctx: ServerContext, channelId: string, why?: stri
   pushTranscript(ctx, channelId);
   drainQueue(ctx, channelId);
   // what just folded away shows as its notes — any it lacks, now
+  backfillNotes(ctx, [channelId], { first: true });
+}
+
+/**
+ * /clear: start the chat over. The live session and every resume id go, as
+ * in a /compact — but nothing is handed to the next one: no brief waits, the
+ * digest is emptied, and the mark it leaves (a compaction mark with
+ * `cleared`) is where every later brief stops reading (sinceClear). The
+ * next prompt lands in a session that has never heard of this conversation.
+ * What was said is kept as the chat's history: the user can read it above
+ * the mark, and `ruri recall` still finds it when it is asked for.
+ */
+export function clearChannel(ctx: ServerContext, channelId: string): void {
+  const said = sinceClear(ctx.archive.allEvents(channelId)).some((event) => event.kind === "user");
+  if (!said) {
+    const event: TranscriptEvent = {
+      kind: "info",
+      id: randomUUID(),
+      text: "nothing to clear: this chat is already a fresh start",
+      ts: Date.now(),
+    };
+    ctx.archive.append(channelId, event);
+    ctx.clients.pushEvent(channelId, event);
+    drainQueue(ctx, channelId);
+    return;
+  }
+  ctx.manager.dispose(channelId);
+  ctx.archive.clearLastSessionId(channelId);
+  ctx.archive.startOver(channelId, ctx.archive.turnIds(channelId).at(-1));
+  // a turn stopped just before is not the fresh session's to hear of
+  ctx.talk.stopNotes.delete(channelId);
+  resetContext(ctx, channelId);
+  const event: TranscriptEvent = {
+    kind: "compaction",
+    id: randomUUID(),
+    text: "",
+    cleared: true,
+    ts: Date.now(),
+  };
+  // the mark folds everything before it into the history (archive.ts)
+  ctx.archive.append(channelId, event);
+  pushTranscript(ctx, channelId);
+  drainQueue(ctx, channelId);
   backfillNotes(ctx, [channelId], { first: true });
 }

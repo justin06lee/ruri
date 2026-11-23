@@ -6,7 +6,7 @@
  * not.
  */
 import { WebSocket } from "ws";
-import type { ServerMessage, TranscriptEvent } from "../../shared/protocol.js";
+import { sinceClear, type ServerMessage, type TranscriptEvent } from "../../shared/protocol.js";
 import { busy, channelProject } from "../channel.js";
 import { pushTranscript } from "../clients.js";
 import { buildCompaction } from "../compaction.js";
@@ -261,7 +261,7 @@ export const rewindHandlers = {
           mode === "brief"
             ? buildCompaction(
                 channelId,
-                ctx.archive.allEvents(channelId),
+                sinceClear(ctx.archive.allEvents(channelId)),
                 ctx.archive.summaries(channelId),
                 ctx.archive.digest(channelId),
                 briefContext(ctx, channelId),

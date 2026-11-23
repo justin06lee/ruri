@@ -275,6 +275,52 @@ describe("what rides in ahead of a prompt", () => {
     expect(catchUp(ctx, CHAT, "hello")).toEqual({ brief: "", harness: "claude" });
   });
 
+  /** A /clear, as dispatch.ts clearChannel leaves the archive. */
+  function cleared(): void {
+    archive.clearLastSessionId(CHAT);
+    archive.startOver(CHAT, archive.turnIds(CHAT).at(-1));
+    archive.append(CHAT, {
+      kind: "compaction",
+      id: "clear-1",
+      text: "",
+      cleared: true,
+      ts: 9,
+    } as TranscriptEvent);
+  }
+
+  test("after a /clear the next prompt is told nothing: not the conversation, not a brief left waiting", () => {
+    ranOn("S1", "p1");
+    archive.setPendingBrief(CHAT, "<compacted-history>build the ledger</compacted-history>");
+    cleared();
+    expect(archive.hasPendingBrief(CHAT)).toBe(false);
+    expect(archive.sessionOn(CHAT, "claude")).toBeUndefined();
+    expect(catchUp(ctx, CHAT, "hello")).toEqual({ brief: "", harness: "claude" });
+    // and it is still there to read: folded into the history, not thrown away
+    expect(archive.history(CHAT).map((event) => event.id)).toEqual(["p1", "r1"]);
+    expect(archive.events(CHAT).map((event) => event.id)).toEqual(["clear-1"]);
+  });
+
+  test("and a fresh session later is told only what was said since the clear", () => {
+    cleared();
+    exchange("p2", "paint the gauges", "painted them");
+    const fresh = catchUp(ctx, CHAT, "and now?").brief;
+    expect(fresh).toContain("paint the gauges");
+    expect(fresh).not.toContain("build the ledger");
+    // a /compact after it folds the clear mark into the history: still nothing from before it
+    archive.append(CHAT, { kind: "compaction", id: "mark-2", text: "brief", ts: 20 } as TranscriptEvent);
+    exchange("p3", "ship it", "shipped");
+    const later = catchUp(ctx, CHAT, "and now?").brief;
+    expect(later).toContain("paint the gauges");
+    expect(later).toContain("ship it");
+    expect(later).not.toContain("build the ledger");
+    // the prompt going out right after a compaction that followed a clear with nothing since: nothing
+    archive.remove(CHAT);
+    archive.append(CHAT, { kind: "user", id: "p1", text: "build the ledger", ts: 1 } as TranscriptEvent);
+    cleared();
+    archive.append(CHAT, { kind: "compaction", id: "mark-3", text: "", ts: 30 } as TranscriptEvent);
+    expect(catchUp(ctx, CHAT, "hello").brief).toBe("");
+  });
+
   test("and every prompt is told how full the context is, last before the prompt itself", () => {
     archive.remove(CHAT);
     const measured = {

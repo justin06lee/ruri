@@ -24,16 +24,22 @@ import { isMissing, warn } from "./log.js";
  */
 
 /** ruri's own, run by the server rather than sent anywhere. */
-const RURI_COMMANDS = new Set(["compact"]);
+const RURI_COMMANDS = new Set(["compact", "clear"]);
+
+/** Those of ruri's own that count only at the head of a line. /compact
+ *  loses nothing, so it works as a word anywhere; /clear throws the
+ *  conversation's context away, and a path or a route called "/clear" in
+ *  the middle of a sentence must never do that. */
+const HEAD_ONLY = new Set(["clear"]);
 
 /** What the harness itself answers to when it arrives as a prompt. */
-const HARNESS_COMMANDS = ["clear", "context", "cost", "review", "init", "memory", "todos"];
+const HARNESS_COMMANDS = ["context", "cost", "review", "init", "memory", "todos"];
 
 /** A line each for the commands ruri and the harnesses answer, so the
  *  composer's menu says what a thing does rather than only its name. */
 const DESCRIBED: Record<string, string> = {
   compact: "ruri compacts the session itself — instant, and it costs nothing",
-  clear: "start the conversation over",
+  clear: "start over: a fresh session that knows nothing of this conversation (it stays above, to read)",
   context: "what is in the context window right now",
   cost: "what this session has spent",
   review: "review the changes on this branch",
@@ -133,7 +139,9 @@ export function splitCommands(text: string, known: Set<string>): { commands: str
     // is what sits against the slash, so it stays in the prompt as written.
     let remaining = line;
     for (const name of RURI_COMMANDS) {
-      const word = new RegExp(`(^|\\s)/${name}(?:\\s+|$)`, "gi");
+      const word = HEAD_ONLY.has(name)
+        ? new RegExp(`^(\\s*)/${name}(?:\\s+|$)`, "gi")
+        : new RegExp(`(^|\\s)/${name}(?:\\s+|$)`, "gi");
       if (!new RegExp(word.source, "i").test(remaining)) continue;
       remaining = remaining.replace(word, (_match, lead: string) => {
         commands.push(`/${name}`);

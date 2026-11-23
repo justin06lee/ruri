@@ -115,6 +115,33 @@ describe("the history file", () => {
     return archive;
   }
 
+  test("a /clear folds the conversation away like any mark, says so in the outline, and restarts the digest", () => {
+    const archive = new SessionArchive();
+    archive.append("c", user("u0", "before"));
+    archive.append("c", reply("a0", "before"));
+    archive.setDigest("c", { through: "u0", text: "what came first" });
+    archive.setPendingBrief("c", "a brief");
+    archive.startOver("c", archive.turnIds("c").at(-1));
+    archive.append("c", { kind: "compaction", id: "clear", text: "", cleared: true, ts: 3 });
+    expect(archive.events("c").map((e) => e.id)).toEqual(["clear"]);
+    expect(archive.history("c").map((e) => e.id)).toEqual(["u0", "a0"]);
+    expect(archive.hasPendingBrief("c")).toBe(false);
+    // an empty digest that ends at the last exchange before the clear:
+    // nothing from before it is ever due to be folded in
+    expect(archive.digest("c")).toEqual({ through: "u0" });
+    archive.append("c", user("u1", "after"));
+    archive.append("c", mark("m"));
+    expect(archive.earlier("c")).toContainEqual({
+      kind: "compaction",
+      id: "clear",
+      ts: expect.any(Number),
+      cleared: true,
+    });
+    // rewound back past the clear: its empty digest goes with it
+    archive.truncateFrom("c", "u0");
+    expect(archive.digest("c")).toBeUndefined();
+  });
+
   test("it reads back exactly what was folded into it, in order", () => {
     const archive = folded(40);
     const history = archive.history("c");

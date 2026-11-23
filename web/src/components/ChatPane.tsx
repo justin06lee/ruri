@@ -1005,7 +1005,13 @@ function ChatView({
                           event={
                             full?.kind === "compaction"
                               ? full
-                              : { kind: "compaction", id: item.id, text: "", ts: item.ts }
+                              : {
+                                  kind: "compaction",
+                                  id: item.id,
+                                  text: "",
+                                  ts: item.ts,
+                                  ...(item.cleared ? { cleared: true as const } : {}),
+                                }
                           }
                           load={loadHistory}
                         />

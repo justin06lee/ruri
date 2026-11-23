@@ -634,13 +634,16 @@ export function buildCompaction(
   const layersBlock = worked
     ? `<layers>\n${within(worked, budget * LAYERS_SHARE, "(more in each layer's sheet)")}\n</layers>\n\n`
     : "";
-  const condensed = digest
+  // a digest with nothing in it yet (a /clear leaves one, to say where the
+  // conversation now starts) has nothing to tell
+  const folded = digest && digestText(digest).trim() ? digest : undefined;
+  const condensed = folded
     ? "<condensed>\n" +
       (end > 0
         ? `Exchanges ${turns[0]!.n}–${turns[end - 1]!.n}, condensed. Their full records are files ${path.basename(files[0]!)} to ${path.basename(files[end - 1]!)} in ${path.dirname(files[0]!)} — read one whenever this memory is not detail enough.\n\n`
         : "The conversation's earliest exchanges, condensed (their full records are no longer kept).\n\n") +
       within(
-        digestText(digest),
+        digestText(folded),
         budget * CONDENSED_SHARE,
         "(the rest of the condensed memory is cut for room)",
       ) +
@@ -650,7 +653,7 @@ export function buildCompaction(
     "<compacted-history>\n" +
     BRIEF_INTRO +
     (layersBlock ? LAYERS_INTRO : "") +
-    (digest ? DIGEST_INTRO : "") +
+    (folded ? DIGEST_INTRO : "") +
     "\n";
   const tail = "</compacted-history>\n\n";
   // and the listed exchanges with what is left, newest first
@@ -678,7 +681,7 @@ export function buildCompaction(
   return {
     brief,
     entries,
-    ...(digest ? { digest: { text: digestText(digest), through: end } } : {}),
+    ...(folded ? { digest: { text: digestText(folded), through: end } } : {}),
   };
 }
 

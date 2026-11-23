@@ -1438,7 +1438,7 @@ export interface TurnNote {
  */
 export type EarlierItem =
   | { kind: "turn"; turnId: string; prompt: string; reply: string; count: number; ts: number }
-  | { kind: "compaction"; id: string; ts: number };
+  | { kind: "compaction"; id: string; ts: number; cleared?: true };
 
 /** A reply with its markdown marks taken off, so a cut of it reads as the
  *  plain line it stands in for rather than as `**stars**` and backticks. */
@@ -1560,8 +1560,23 @@ export type TranscriptEvent =
       text: string;
       entries?: CompactionEntry[];
       digest?: CompactionDigest;
+      /** A /clear point instead: the session started over here with nothing
+       *  of the conversation handed to it — no brief, no notes. What came
+       *  before is kept as history, for the user to read and for recall to
+       *  find, and no later brief reaches back past it (sinceClear). */
+      cleared?: true;
       ts: number;
     };
+
+/** The conversation a session may be told of: all of it, or — once the user
+ *  has cleared the chat — only what came after the newest /clear. */
+export function sinceClear<T extends { kind: string }>(events: T[]): T[] {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i]!;
+    if (event.kind === "compaction" && (event as { cleared?: boolean }).cleared) return events.slice(i + 1);
+  }
+  return events;
+}
 
 /**
  * A subagent a harness started — Claude's Agent tool, Codex's spawn_agent —

@@ -152,6 +152,8 @@ export function eventLines(event: TranscriptEvent, width: number, open: boolean)
       ];
     }
     case "compaction": {
+      if (event.cleared)
+        return [paint.soft(fit(`∿∿∿ cleared — a fresh start from here — ${clock(event.ts)} ∿∿∿`, width))];
       const rule = paint.soft(fit(`∿∿∿ compacted here — ${clock(event.ts)} ∿∿∿`, width));
       if (!open) return [rule];
       const brief = markdownLines(event.text, width - 2);
@@ -168,7 +170,7 @@ export function eventLines(event: TranscriptEvent, width: number, open: boolean)
 /** Whether an event has more to show when opened. */
 export function opens(event: TranscriptEvent): boolean {
   if (event.kind === "tool") return true;
-  if (event.kind === "compaction") return true;
+  if (event.kind === "compaction") return !event.cleared;
   return event.kind === "plan" && Boolean(event.markdown) && (event.entries?.length ?? 0) > 0;
 }
 

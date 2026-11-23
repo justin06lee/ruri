@@ -329,6 +329,9 @@ export function phoneItems(events: TranscriptEvent[], draft?: { id: string; text
       fold();
       const text = event.stopped ? "Stopped" : `Stopped on an error: ${oneLine(event.error || "an error")}`;
       items.push({ id: event.id, kind: "note", text, at: iso(event.ts) });
+    } else if (event.kind === "compaction" && event.cleared) {
+      fold();
+      items.push({ id: event.id, kind: "note", text: "Cleared: a fresh start from here", at: iso(event.ts) });
     }
   }
   fold();

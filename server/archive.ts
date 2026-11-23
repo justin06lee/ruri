@@ -184,7 +184,7 @@ function outline(events: TranscriptEvent[]): EarlierItem[] {
       reply = "";
     }
     if (event.kind === "compaction") {
-      items.push({ kind: "compaction", id: event.id, ts: event.ts });
+      items.push({ kind: "compaction", id: event.id, ts: event.ts, ...(event.cleared ? { cleared: true } : {}) });
     } else if (event.kind === "user") {
       open = {
         kind: "turn",
@@ -1108,8 +1108,12 @@ export class SessionArchive {
     const entry = this.load(projectId);
     const start = entry.events.findIndex((e) => e.id === eventId);
     let removed: string[];
+    let unclear: boolean;
+    const clear = (e: TranscriptEvent) => e.kind === "compaction" && e.cleared === true;
     if (start !== -1) {
-      removed = entry.events.splice(start).map((e) => e.id);
+      const gone = entry.events.splice(start);
+      unclear = gone.some(clear);
+      removed = gone.map((e) => e.id);
       this.restack(projectId);
     } else {
       // A prompt from before the newest compaction: everything kept is
@@ -1118,7 +1122,9 @@ export class SessionArchive {
       const earlier = this.history(projectId);
       const at = earlier.findIndex((e) => e.id === eventId);
       if (at === -1) return [];
-      removed = [...earlier.slice(at), ...entry.events].map((e) => e.id);
+      const gone = [...earlier.slice(at), ...entry.events];
+      unclear = gone.some(clear);
+      removed = gone.map((e) => e.id);
       const kept = earlier.slice(0, at);
       const mark = lastMark(kept);
       entry.events = mark > 0 ? kept.slice(mark) : kept;
@@ -1138,9 +1144,26 @@ export class SessionArchive {
     this.unnumber(projectId, entry, removed);
     // rewound back past what the digest folded in: it remembers exchanges
     // that, as far as the conversation now goes, never happened
-    if (entry.digest && removed.includes(entry.digest.through)) delete entry.digest;
+    // and back past a /clear: the digest that clear started over is not the
+    // conversation's any more
+    if (entry.digest && (unclear || removed.includes(entry.digest.through))) delete entry.digest;
     this.flushNow(projectId);
     return removed;
+  }
+
+  /**
+   * A /clear: the conversation starts over from here. No brief waits for
+   * the next session, and the digest — the oldest exchanges, condensed —
+   * is emptied and told where the conversation now begins: after `through`,
+   * the last exchange before the clear, so nothing before it is ever folded
+   * back in (server/compaction.ts dueForDigest).
+   */
+  startOver(projectId: string, through: string | undefined): void {
+    const entry = this.load(projectId);
+    delete entry.pendingBrief;
+    if (through) entry.digest = { through };
+    else delete entry.digest;
+    this.scheduleWrite(projectId);
   }
 
   setPendingBrief(projectId: string, brief: string): void {

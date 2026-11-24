@@ -1,16 +1,7 @@
 import SwiftUI
 
-/// The small system spinner: what is at work. Nothing else is marked — a
-/// chat that waits, rests or stopped says so in words.
-struct WorkingSpinner: View {
-    var body: some View {
-        ProgressView()
-            .controlSize(.small)
-            .scaleEffect(0.8)
-            .frame(width: 16, height: 16)
-            .accessibilityLabel("Working")
-    }
-}
+// What is at work is marked by the dragon's head (DragonHead.swift), as in
+// ruri's window: this file keeps what else says how things stand.
 
 extension View {
     /// While the Mac can't be reached, what is shown is the last picture of

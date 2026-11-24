@@ -273,6 +273,23 @@ final class MacClient: Sendable {
         }
     }
 
+    /// The things said in a chat just before one this phone holds: the rest
+    /// of the conversation, a page at a time.
+    func earlier(before item: String, chat: String, at address: String, port: Int) async throws -> EarlierPage {
+        let query = [URLQueryItem(name: "id", value: chat), URLQueryItem(name: "before", value: item)]
+        let (data, response) = try await session.data(
+            for: request(address, port: port, path: "/chat/earlier", query: query, timeout: 30), delegate: pinned
+        )
+        // a ruri from before the phone could page back refuses the path
+        if (response as? HTTPURLResponse)?.statusCode == 405 { throw MacError.outdated }
+        try Self.checkChat(response)
+        do {
+            return try StatusReport.decoder().decode(EarlierPage.self, from: data)
+        } catch {
+            throw MacError.newer
+        }
+    }
+
     /// One thing a chat has running, opened: a script's command and what it
     /// has printed so far, or an agent's own side of the conversation.
     func running(_ key: String, chat: String, at address: String, port: Int) async throws -> RunningPage {

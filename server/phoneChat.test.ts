@@ -22,6 +22,7 @@ import {
   phoneAnswer,
   phoneAsks,
   phoneDraft,
+  phoneEarlier,
   phoneItems,
   phoneQueue,
   phoneQueueDo,
@@ -757,6 +758,56 @@ describe("a prompt box the same on every device", () => {
       { ...png("s1"), data: "aGVsbG8=" },
       { ...png("own", 2), data: "aGk=" },
     ]);
+  });
+});
+
+describe("the rest of a conversation, on the phone", () => {
+  const said = (id: string, kind: "user" | "assistant" = "assistant"): TranscriptEvent =>
+    ({ kind, id, ts: at, text: `said ${id}` }) as TranscriptEvent;
+  // forty things said before the last compaction, and two hundred since
+  const before = Array.from({ length: 40 }, (_, i) => said(`h${i}`));
+  const since = Array.from({ length: 200 }, (_, i) => said(`l${i}`));
+  const ctx = (chat = "c") =>
+    ({
+      archive: {
+        events: (id: string) => (id === chat ? since : []),
+        history: (id: string) => (id === chat ? before : []),
+      },
+    }) as unknown as ServerContext;
+
+  test("a frame carries the newest; the page before its oldest is the ones just before it", () => {
+    const frame = phoneItems(since);
+    expect(frame.length).toBe(150);
+    expect(frame[0]!.id).toBe("l50");
+    const page = phoneEarlier(ctx("c1"), "c1", "l50", 30);
+    expect(page.items.map((item) => item.id)).toEqual(Array.from({ length: 30 }, (_, i) => `l${i + 20}`));
+    expect(page.more).toBe(true);
+  });
+
+  test("it goes on back past the compaction, to the first thing said", () => {
+    const page = phoneEarlier(ctx("c2"), "c2", "l20", 30);
+    // the last ten before the compaction, then the first twenty since
+    expect(page.items[0]!.id).toBe("h30");
+    expect(page.items.at(-1)!.id).toBe("l19");
+    expect(page.more).toBe(true);
+    const first = phoneEarlier(ctx("c2"), "c2", "h30", 80);
+    expect(first.items.map((item) => item.id)).toEqual(Array.from({ length: 30 }, (_, i) => `h${i}`));
+    expect(first.more).toBe(false);
+    // at the very start there is nothing before
+    expect(phoneEarlier(ctx("c2"), "c2", "h0")).toEqual({ items: [], more: false });
+  });
+
+  test("with nothing named, the newest of everything: a chat that has said nothing since it compacted", () => {
+    const quiet = { archive: { events: () => [], history: () => before } } as unknown as ServerContext;
+    const page = phoneEarlier(quiet, "c4", "", 5);
+    expect(page.items.map((item) => item.id)).toEqual(["h35", "h36", "h37", "h38", "h39"]);
+    expect(page.more).toBe(true);
+  });
+
+  test("an item the conversation does not hold has nothing before it; a page is never more than 200", () => {
+    expect(phoneEarlier(ctx("c3"), "c3", "gone")).toEqual({ items: [], more: false });
+    expect(phoneEarlier(ctx("c3"), "c3", "l199", 5_000).items.length).toBe(200);
+    expect(phoneEarlier(ctx("c3"), "c3", "l199", 0).items.length).toBe(1);
   });
 });
 

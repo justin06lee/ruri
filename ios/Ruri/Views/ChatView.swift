@@ -138,6 +138,12 @@ private struct Conversation: View {
             // every row is laid out, not only those in view: a lazy stack
             // kept to its end loses its place when rows change under it
             VStack(alignment: .leading, spacing: 0) {
+                // the rest of the conversation: fetched as the reader nears
+                // the top, a page at a time, or on a tap
+                if session.log.more {
+                    Earlier(loading: session.pagingEarlier) { session.loadEarlier() }
+                        .padding(.bottom, 14)
+                }
                 ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                     RowView(row: row, session: session)
                         .equatable()
@@ -151,11 +157,20 @@ private struct Conversation: View {
         }
         .scrollPosition($position)
         .defaultScrollAnchor(.bottom, for: .initialOffset)
-        .defaultScrollAnchor(atEnd ? .bottom : .top, for: .sizeChanges)
+        // held from its end while the reader is there, and while earlier
+        // messages land above them: what they are reading stays where it is
+        .defaultScrollAnchor(atEnd || session.pagingEarlier ? .bottom : .top, for: .sizeChanges)
         .onScrollGeometryChange(for: Bool.self) { geometry in
             geometry.contentSize.height - geometry.visibleRect.maxY < 56
         } action: { _, now in
             atEnd = now
+        }
+        // near the top: more of the conversation is asked for before the
+        // reader gets there
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            geometry.contentOffset.y < 320 && geometry.contentSize.height > geometry.containerSize.height
+        } action: { _, near in
+            if near, landed { session.loadEarlier() }
         }
         .scrollDismissesKeyboard(.interactively)
         .opacity(!landed && !rows.isEmpty ? 0 : session.line == .offline ? 0.5 : 1)
@@ -170,9 +185,18 @@ private struct Conversation: View {
             atEnd = true
             landed = true
         }
+        // nothing held, and more to be had: asked for without waiting to
+        // be scrolled to, since there is nothing to scroll
+        .task(id: session.log.more && session.log.items.isEmpty) {
+            if session.log.more, session.log.items.isEmpty { session.loadEarlier() }
+        }
         .overlay {
             if rows.isEmpty {
                 if session.line == .connecting || session.line == .live && session.log.name.isEmpty {
+                    ProgressView()
+                } else if session.line == .live, session.log.more {
+                    // said nothing since it compacted: what it said before
+                    // is on its way
                     ProgressView()
                 } else if session.line == .live {
                     Text("Nothing said here yet")
@@ -214,6 +238,35 @@ private struct Conversation: View {
     }
 }
 
+/// At the top of a conversation with more before it: the rest is on its
+/// way, or a tap away.
+private struct Earlier: View {
+    var loading: Bool
+    var load: () -> Void
+    @Environment(\.palette) private var palette
+
+    var body: some View {
+        Button(action: load) {
+            HStack(spacing: 8) {
+                if loading {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                Text(loading ? "Loading earlier messages…" : "Earlier messages")
+                    .font(.ruri(.footnote))
+            }
+            .foregroundStyle(palette.inkSoft)
+            .frame(maxWidth: .infinity, minHeight: 36)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .disabled(loading)
+        .accessibilityIdentifier("chat.earlier")
+    }
+}
+
 /// In place of the field, on a phone that may only read.
 private struct ReadOnlyNote: View {
     var again: () -> Void
@@ -238,7 +291,7 @@ private struct ReadOnlyNote: View {
 
 // MARK: the rows
 
-/// What a conversation shows, in order: what was said, the spinner while a
+/// What a conversation shows, in order: what was said, the dragon's head while a
 /// turn works, and prompts sent from here that the chat doesn't hold yet.
 /// What waits in the queue stands over the field instead (Composer).
 enum Transcript {
@@ -277,7 +330,7 @@ enum Transcript {
     @MainActor
     static func rows(_ session: ChatSession) -> [Row] {
         var rows = session.log.items.map(Row.item)
-        // at work: the spinner under what it is on
+        // at work: the dragon's head under what it is on
         let writing = session.log.items.last?.pending == true
         if session.log.state == .working, !writing { rows.append(.working) }
         for outgoing in session.outbox where !session.log.holds(outgoing.id) {
@@ -318,7 +371,7 @@ private struct RowView: View, Equatable {
         case .sending(let sending):
             Outgoing(sending: sending, session: session)
         case .working:
-            WorkingSpinner()
+            DragonHead(size: 22)
                 .padding(.vertical, 4)
         }
     }
@@ -393,7 +446,7 @@ private struct Bubble: View {
     }
 }
 
-/// A reply, in full, across the screen — with the spinner while it is
+/// A reply, in full, across the screen — with the dragon's head while it is
 /// still being written, and a way to copy it once it is.
 private struct Reply: View {
     var item: ChatItem
@@ -405,7 +458,7 @@ private struct Reply: View {
             MarkdownText(source: item.text, font: .ruri(.body))
                 .textSelection(.enabled)
             if item.pending == true {
-                WorkingSpinner()
+                DragonHead(size: 22)
             } else {
                 Button {
                     UIPasteboard.general.string = item.text

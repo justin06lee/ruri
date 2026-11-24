@@ -2159,6 +2159,13 @@ export interface PhoneRunningPage {
   items: PhoneChatItem[];
 }
 
+/** What GET /chat/earlier answers: the things said just before one the
+ *  phone holds, oldest first, and whether there are more before those. */
+export interface PhoneEarlier {
+  items: PhoneChatItem[];
+  more: boolean;
+}
+
 /** A prompt waiting in the chat's queue, by the id it was sent with. */
 export interface PhoneQueued {
   id: string;
@@ -2240,6 +2247,10 @@ export interface PhoneChatFrame {
   /** What the chat has running beside its conversation, whether or not a
    *  turn is: scripts left in the background and agents at work. */
   running?: PhoneRunning[];
+  /** There is more of the conversation than `items` ever carries — said
+   *  before the frame's oldest, or before the chat's last compaction: what
+   *  GET /chat/earlier pages back through. */
+  earlier?: true;
   /** The cards the chat waits at, oldest first. */
   asks?: PhoneAsk[];
   items?: PhoneChatItem[];

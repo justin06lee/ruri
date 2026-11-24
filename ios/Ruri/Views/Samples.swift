@@ -137,6 +137,32 @@ extension StatusReport {
     }
 }
 
+extension RunningPage {
+    /// A script's page: its command, two stretches of printing, and the
+    /// line between them where it printed nothing.
+    static var sample: RunningPage {
+        let ago = { (seconds: Double) in Date.now.addingTimeInterval(-seconds) }
+        return RunningPage(
+            running: true,
+            items: [
+                ChatItem(
+                    id: "s:command", kind: .user,
+                    text: "```sh\nuntil ssh -o BatchMode=yes -o ConnectTimeout=10 lamp true; do sleep 20; done\n```", at: ago(380)
+                ),
+                ChatItem(
+                    id: "s:out:0", kind: .assistant,
+                    text: "```\n=== [7/9] lens: training\n(01:40)\n```", at: ago(360)
+                ),
+                ChatItem(id: "s:quiet:1", kind: .note, text: "printed nothing for 3m 10s", at: ago(120)),
+                ChatItem(
+                    id: "s:out:1", kind: .assistant,
+                    text: "```\n=== [8/9] certs: training\n(00:50)\n```", at: ago(95)
+                ),
+            ]
+        )
+    }
+}
+
 extension ChatFrame {
     /// A conversation with a bit of everything in it: a prompt, steps, a
     /// reply written in markdown, another agent's message, a stop, and two

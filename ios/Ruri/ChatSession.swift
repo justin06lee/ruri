@@ -344,6 +344,10 @@ final class ChatSession {
 
     /// One script or agent the chat has running, opened.
     func page(of running: ChatRunning) async throws -> RunningPage {
+        #if DEBUG
+        // a made-up chat has a made-up page: something to look at
+        if made { return .sample }
+        #endif
         let (client, address, port) = try await model.line(to: machine)
         return try await client.running(running.key, chat: chat, at: address, port: port)
     }

@@ -42,7 +42,7 @@ private struct More: View {
         Text("and \(count) more running")
             .font(.ruri(.caption))
             .foregroundStyle(palette.inkFaint)
-            .padding(.leading, 14)
+            .padding(.leading, 20)
     }
 }
 
@@ -83,10 +83,11 @@ private struct RunningRow: View {
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(palette.inkFaint)
         }
-        .padding(.horizontal, 14)
+        // a pill, its ends fully round: room at each end for the curve
+        .padding(.horizontal, 20)
         .padding(.vertical, 10)
-        .glass(RoundedRectangle(cornerRadius: 14, style: .continuous), fallback: palette.paperDim)
-        .contentShape(.rect)
+        .glass(Capsule(), fallback: palette.paperDim)
+        .contentShape(.capsule)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         .accessibilityHint(running.kind == .script ? "Shows what it has printed." : "Shows what it has done.")
@@ -132,19 +133,38 @@ struct RunningSheet: View {
                 }
                 .padding(16)
             }
-            // what it printed last is what was asked about
-            .defaultScrollAnchor(.bottom)
+            // what it printed last is what was asked about: a long page
+            // opens at its end and stays there as more is printed, while a
+            // short one sits at the top rather than at the foot of an
+            // empty screen
+            .defaultScrollAnchor(.bottom, for: .initialOffset)
+            .defaultScrollAnchor(.bottom, for: .sizeChanges)
+            .defaultScrollAnchor(.top, for: .alignment)
             .background(palette.paper)
             .navigationTitle(opened.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    TimelineView(.periodic(from: .now, by: 1)) { moment in
-                        Text(standing(now: moment.date))
-                            .font(.ruri(.caption))
-                            .monospacedDigit()
-                            .foregroundStyle(palette.inkSoft)
+                // its name with how it stands under it, as a chat's title
+                // has its state: a bar button of its own would be a glass
+                // circle too small for the words
+                ToolbarItem(placement: .principal) {
+                    VStack(spacing: 0) {
+                        Text(opened.title)
+                            .font(.ruri(.headline, .bold))
+                            .foregroundStyle(palette.ink)
+                            .lineLimit(1)
+                        TimelineView(.periodic(from: .now, by: 1)) { moment in
+                            let words = standing(now: moment.date)
+                            if !words.isEmpty {
+                                Text(words)
+                                    .font(.ruri(.caption2))
+                                    .monospacedDigit()
+                                    .foregroundStyle(palette.inkSoft)
+                                    .lineLimit(1)
+                            }
+                        }
                     }
+                    .accessibilityElement(children: .combine)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }

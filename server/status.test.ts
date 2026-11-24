@@ -203,6 +203,23 @@ describe("the status report", () => {
     expect(report.needsYou.map((n) => n.reason)).toEqual(["error"]);
   });
 
+  test("a chat whose turn ended with a script still running is at work, and says so", () => {
+    const w = world();
+    w.turn("mira-lead", "Run the migration", "It's running in the background.");
+    w.ctx.turns.work.set("mira-lead", { agents: 0, scripts: 1 });
+    const mira = () => statusReport(w.ctx, { now: w.now() }).projects.find((p) => p.name === "mira")!;
+    expect(mira().state).toBe("working");
+    expect(mira().lead?.state).toBe("working");
+    expect(mira().lead?.doing).toBe("A script running in the background");
+    expect(mira().doingNow).toBe("Lead: A script running in the background");
+    // more than one, and agents beside them
+    w.ctx.turns.work.set("mira-lead", { agents: 1, scripts: 2 });
+    expect(mira().lead?.doing).toBe("2 scripts and an agent running in the background");
+    // once they have ended it is at rest again
+    w.ctx.turns.work.delete("mira-lead");
+    expect(mira().lead?.state).toBe("idle");
+  });
+
   test("a turn the user stopped is not an error", () => {
     const w = world();
     w.say("mira-lead", { kind: "user", text: "Deploy" });

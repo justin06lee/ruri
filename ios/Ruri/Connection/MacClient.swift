@@ -273,6 +273,23 @@ final class MacClient: Sendable {
         }
     }
 
+    /// One thing a chat has running, opened: a script's command and what it
+    /// has printed so far, or an agent's own side of the conversation.
+    func running(_ key: String, chat: String, at address: String, port: Int) async throws -> RunningPage {
+        let query = [URLQueryItem(name: "id", value: chat), URLQueryItem(name: "key", value: key)]
+        let (data, response) = try await session.data(
+            for: request(address, port: port, path: "/chat/running", query: query, timeout: 15), delegate: pinned
+        )
+        // a ruri from before the phone could look refuses the path
+        if (response as? HTTPURLResponse)?.statusCode == 405 { throw MacError.outdated }
+        try Self.checkChat(response)
+        do {
+            return try StatusReport.decoder().decode(RunningPage.self, from: data)
+        } catch {
+            throw MacError.newer
+        }
+    }
+
     /// A chat's conversation as it changes: the whole of it on connecting,
     /// then what changed. Ends when the Mac closes the line; throws when it
     /// is lost.

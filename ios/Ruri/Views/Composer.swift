@@ -17,6 +17,8 @@ struct Composer: View {
     @State private var draft = ""
     @State private var attachments = AttachmentPicking()
     @State private var editing = false
+    /// The script or agent, of those the chat has running, that is open.
+    @State private var looking: ChatRunning?
 
     /// A turn is running — at work, or waiting on a card: a prompt sent now
     /// would wait behind it.
@@ -32,6 +34,7 @@ struct Composer: View {
     var body: some View {
         VStack(spacing: 8) {
             AskDock(session: session)
+            RunningDock(session: session, opened: $looking)
             QueueDock(session: session)
             if let problem = session.problem {
                 Notice(text: problem) { session.problem = nil }
@@ -71,7 +74,11 @@ struct Composer: View {
         .onAppear {
             attachments.added = { session.attached($0) }
         }
+        .sheet(item: $looking) { one in
+            RunningSheet(session: session, key: one.key, opened: one)
+        }
         .animation(.snappy(duration: 0.25), value: session.log.queue)
+        .animation(.snappy(duration: 0.25), value: session.log.running.map(\.key))
         .animation(.snappy(duration: 0.25), value: session.problem)
         #if DEBUG
         .task { await attachments.attachForTest() }
@@ -95,12 +102,6 @@ struct Composer: View {
                 // the model this chat runs on, where the Mac's box has it
                 ModelMenu(chat: session.chat)
                 Spacer(minLength: 0)
-                if working, !empty {
-                    Text("Hold to send now")
-                        .font(.ruri(.caption))
-                        .foregroundStyle(palette.inkFaint)
-                        .transition(.opacity)
-                }
                 sendButton
             }
         }
@@ -109,7 +110,6 @@ struct Composer: View {
         .padding(.trailing, 8)
         .padding(.bottom, 8)
         .fieldSurface(palette)
-        .animation(.snappy(duration: 0.2), value: working && !empty)
     }
 
     private var sendButton: some View {

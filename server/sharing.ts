@@ -188,6 +188,7 @@ const PHONE_PATHS = new Set([
   "/chat/queue",
   "/chat/stop",
   "/chat/draft",
+  "/chat/running",
   "/chat/answer",
   "/sidebar",
   "/project/account",

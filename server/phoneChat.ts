@@ -23,6 +23,10 @@
  *                               takes them, with `data`) and files taken
  *                               off (`remove`, their ids); every window's
  *                               box takes it
+ *   GET  /chat/running?id=<chat>&key=<key>
+ *                               one thing the frame's `running` lists,
+ *                               opened: a script's command and what it
+ *                               has printed, or an agent's own side
  *   POST /chat/answer           { id, ask, allow } — a card allowed or
  *                               refused; { id, ask, answers } — a question
  *                               answered, one { picked, other? } each;
@@ -70,7 +74,10 @@ import {
   type PhoneChatFrame,
   type PhoneChatItem,
   type PhoneQueued,
+  type PhoneRunning,
+  type PhoneRunningPage,
   type PhoneSent,
+  type SubagentState,
   type TalkAsk,
   type TranscriptEvent,
 } from "../shared/protocol.js";
@@ -85,6 +92,7 @@ import { promptHandlers } from "./handlers/prompts.js";
 import { settingHandlers } from "./handlers/settings.js";
 import { warn } from "./log.js";
 import type { QueueEntry } from "./queue.js";
+import { scriptLog } from "./scripts.js";
 import { readBody } from "./sharing.js";
 import { storedFilePath, storeUpload } from "./uploads.js";
 
@@ -276,6 +284,7 @@ const CHAT_PATHS = new Set([
   "/chat/queue",
   "/chat/stop",
   "/chat/draft",
+  "/chat/running",
   "/chat/answer",
   "/sidebar",
   "/project/account",
@@ -364,6 +373,91 @@ export function phoneItems(events: TranscriptEvent[], draft?: { id: string; text
   return items.slice(-ITEMS_MAX);
 }
 
+/* ── what a chat has running beside its conversation ───────────────── */
+
+/** A card's one line, as long as a step's. */
+const runningLine = (ctx: ServerContext, text: string | undefined) => {
+  const line = oneLine(ctx.secrets.redact(text ?? ""));
+  return line || undefined;
+};
+
+/** Every card of a chat that says it is running: the model's own agents
+ *  and scripts, in the chat's transcript, and the user's own agents. */
+function runningCards(ctx: ServerContext, chatId: string): SubagentState[] {
+  // (a stand-in context, in a test, may keep no sessions and no crew: a
+  // frame is read for many things besides what is running)
+  const sessions = ctx.manager as Partial<Pick<ServerContext["manager"], "backgroundWork">> | undefined;
+  const live = sessions?.backgroundWork?.(chatId) ?? { agents: 0, scripts: 0 };
+  const crew = (ctx.crew as ServerContext["crew"] | undefined)?.list(chatId) ?? [];
+  if (live.agents === 0 && live.scripts === 0 && crew.length === 0) return [];
+  const cards = ctx.archive
+    .events(chatId)
+    .flatMap((event) => (event.kind === "tool" && event.agent?.status === "running" ? [event.agent] : []));
+  // only as many as the session says are alive, the newest: a card a
+  // process that is gone left "running" is not
+  const newest = (of: SubagentState[], n: number) => (n > 0 ? of.slice(-n) : []);
+  const mine = crew.filter((agent) => agent.status === "running");
+  return [
+    ...newest(
+      cards.filter((card) => card.script),
+      live.scripts,
+    ),
+    ...newest(
+      cards.filter((card) => !card.script),
+      live.agents,
+    ),
+    ...mine,
+  ].sort((a, b) => a.startedAt - b.startedAt);
+}
+
+/** What a chat has running, as the phone lists it. */
+export function phoneRunning(ctx: ServerContext, chatId: string): PhoneRunning[] {
+  return runningCards(ctx, chatId).map((card) => {
+    const doing = runningLine(ctx, card.activity);
+    return {
+      key: card.key,
+      kind: card.script ? ("script" as const) : ("agent" as const),
+      title: runningLine(ctx, card.description) ?? (card.script ? "A script" : "An agent"),
+      ...(doing ? { doing } : {}),
+      since: iso(card.startedAt),
+      ...(card.printedAt !== undefined ? { printed: iso(card.printedAt) } : {}),
+    };
+  });
+}
+
+/**
+ * One of them opened: a script's page as the window's agents page shows it
+ * (server/scripts.ts — its command, then what it printed, in the stretches
+ * it arrived in, with a line where it printed nothing for a while), or an
+ * agent's own side of the conversation. Undefined for a key that is none
+ * of this chat's cards.
+ */
+export function phoneRunningPage(
+  ctx: ServerContext,
+  chatId: string,
+  key: string,
+): PhoneRunningPage | undefined {
+  const card =
+    ctx.archive
+      .events(chatId)
+      .flatMap((event) => (event.kind === "tool" && event.agent ? [event.agent] : []))
+      .findLast((agent) => agent.key === key) ?? ctx.crew.list(chatId).find((agent) => agent.key === key);
+  if (!card) return undefined;
+  const running = runningCards(ctx, chatId).some((live) => live.key === key);
+  const page = scriptLog(ctx, chatId, key);
+  if (!page) return { running, items: phoneItems(ctx.agentLogs.read(chatId, key)) };
+  // a script's page is a conversation nobody can answer: its command, what
+  // it printed, and ruri's own line where it went quiet
+  const items = page.flatMap((event): PhoneChatItem[] =>
+    event.kind === "user" || event.kind === "assistant"
+      ? [{ id: event.id, kind: event.kind, text: cut(event.text), at: iso(event.ts) }]
+      : event.kind === "info"
+        ? [{ id: event.id, kind: "note", text: event.text, at: iso(event.ts) }]
+        : [],
+  );
+  return { running, items: items.slice(-ITEMS_MAX) };
+}
+
 /** The chat, whole, as a frame — or undefined for a chat that is not one. */
 export function phoneFrame(ctx: ServerContext, chatId: string): PhoneChatFrame | undefined {
   const found = ctx.store.findSession(chatId);
@@ -381,6 +475,7 @@ export function phoneFrame(ctx: ServerContext, chatId: string): PhoneChatFrame |
   const queue = phoneQueue(ctx.queues.entries.get(chatId) ?? []);
   const asks = phoneAsks(ctx, chatId);
   const boxed = phoneAttachments(ctx.drafts.get(chatId)?.attachments);
+  const running = phoneRunning(ctx, chatId);
   return {
     chat: chatId,
     name: session.title || project.name,
@@ -391,6 +486,7 @@ export function phoneFrame(ctx: ServerContext, chatId: string): PhoneChatFrame |
     // markers as the phone reads them: a window saves its own unbreakable
     ...(ctx.drafts.get(chatId)?.text.trim() ? { draft: plainMarkers(ctx.drafts.get(chatId)!.text) } : {}),
     ...(boxed.attachments ? { draftAttachments: boxed.attachments } : {}),
+    ...(running.length ? { running } : {}),
     ...(asks.length ? { asks } : {}),
     items: phoneItems(ctx.archive.events(chatId), draft),
   };
@@ -1109,6 +1205,13 @@ export async function servePhoneChat(
   const frame = phoneFrame(ctx, chat);
   if (!frame) {
     json(res, 404, { error: "no such chat" });
+    return;
+  }
+  if (url.pathname === "/chat/running") {
+    const page = phoneRunningPage(ctx, chat, url.searchParams.get("key") ?? "");
+    if (page) json(res, 200, page);
+    // its card is gone: the chat was cleared, or rewound past it
+    else json(res, 404, { error: "no such card" });
     return;
   }
   if (url.pathname === "/chat/live" && req.method === "GET") {

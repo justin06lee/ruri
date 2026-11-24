@@ -2131,6 +2131,34 @@ export interface PhoneAttachment {
   url: string;
 }
 
+/** Something a chat has running beside its conversation: a script the
+ *  model left in the background, or an agent at work — what the window
+ *  shows as a card in the chat. */
+export interface PhoneRunning {
+  /** Its card's key: what GET /chat/running opens. */
+  key: string;
+  kind: "script" | "agent";
+  /** What it is for, in a line. */
+  title: string;
+  /** What it is doing: the newest line a script printed, an agent's
+   *  latest step. */
+  doing?: string;
+  /** When it started. ISO 8601. */
+  since: string;
+  /** When a script last printed anything: how the phone says it is
+   *  printing, or how long it has been quiet. ISO 8601. */
+  printed?: string;
+}
+
+/** What GET /chat/running answers: one script's page (its command, then
+ *  what it printed, in the stretches it arrived in) or one agent's side
+ *  of the conversation, as a chat's items are. */
+export interface PhoneRunningPage {
+  /** Still going: the phone asks again every couple of seconds. */
+  running: boolean;
+  items: PhoneChatItem[];
+}
+
 /** A prompt waiting in the chat's queue, by the id it was sent with. */
 export interface PhoneQueued {
   id: string;
@@ -2209,6 +2237,9 @@ export interface PhoneChatFrame {
    *  through the door: the phone's box shows them, takes one off
    *  (POST /chat/draft { remove }) and sends them by id alone. */
   draftAttachments?: PhoneAttachment[];
+  /** What the chat has running beside its conversation, whether or not a
+   *  turn is: scripts left in the background and agents at work. */
+  running?: PhoneRunning[];
   /** The cards the chat waits at, oldest first. */
   asks?: PhoneAsk[];
   items?: PhoneChatItem[];

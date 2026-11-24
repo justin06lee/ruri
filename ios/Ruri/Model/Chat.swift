@@ -53,6 +53,59 @@ struct ChatItem: Codable, Hashable, Sendable, Identifiable {
     var attachments: [ChatAttachment]?
 }
 
+/// Something a chat has running beside its conversation: a script the
+/// model left in the background, or an agent at work.
+struct ChatRunning: Codable, Hashable, Sendable, Identifiable {
+    enum Kind: String, Codable, Sendable {
+        case script
+        case agent
+
+        init(from decoder: Decoder) throws {
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            self = Kind(rawValue: raw) ?? .agent
+        }
+    }
+
+    /// Its card's key on the Mac: what opens it.
+    var key: String
+    var kind: Kind
+    /// What it is for, in a line.
+    var title: String
+    /// What it is doing: a script's newest line, an agent's latest step.
+    var doing: String?
+    var since: Date
+    /// When a script last printed anything.
+    var printed: Date?
+
+    var id: String { key }
+
+    /// How it stands, at a glance: a script printing or how long it has
+    /// been quiet, an agent by how long it has been going.
+    func standing(now: Date = .now) -> String {
+        if kind == .script, let printed {
+            let quiet = now.timeIntervalSince(printed)
+            return quiet < 10 ? "printing" : "quiet \(Self.span(quiet))"
+        }
+        return Self.span(now.timeIntervalSince(since))
+    }
+
+    /// "42s", "3m 05s", "2h 14m".
+    static func span(_ seconds: TimeInterval) -> String {
+        let s = max(0, Int(seconds.rounded()))
+        if s < 60 { return "\(s)s" }
+        if s < 3_600 { return "\(s / 60)m \(String(format: "%02d", s % 60))s" }
+        return "\(s / 3_600)h \(String(format: "%02d", s % 3_600 / 60))m"
+    }
+}
+
+/// One of them opened: a script's command and what it has printed, or an
+/// agent's own side of the conversation.
+struct RunningPage: Codable, Sendable {
+    /// Still going: asked for again every couple of seconds.
+    var running: Bool
+    var items: [ChatItem]
+}
+
 /// A prompt waiting in the chat's queue, by the id it was sent with.
 struct ChatQueued: Codable, Hashable, Sendable, Identifiable {
     var id: String
@@ -164,6 +217,8 @@ struct ChatFrame: Codable, Sendable {
     var draft: String?
     /// The files clipped to it, on any device, as the Mac has them on file.
     var draftAttachments: [ChatAttachment]?
+    /// What the chat has running beside its conversation.
+    var running: [ChatRunning]?
     /// The cards the chat waits at, oldest first.
     var asks: [ChatAsk]?
     var items: [ChatItem]?
@@ -203,6 +258,9 @@ struct ChatLog: Equatable, Sendable {
     var draft = ""
     /// The files clipped to it, on any device, as the Mac has them on file.
     var draftAttachments: [ChatAttachment] = []
+    /// What the chat has running beside its conversation, whether or not a
+    /// turn is: scripts left in the background, agents at work.
+    var running: [ChatRunning] = []
     /// The cards the chat waits at, oldest first.
     var asks: [ChatAsk] = []
     private(set) var items: [ChatItem] = []
@@ -218,6 +276,7 @@ struct ChatLog: Equatable, Sendable {
         held = frame.held ?? false
         draft = Attaching.plain(frame.draft ?? "")
         draftAttachments = frame.draftAttachments ?? []
+        running = frame.running ?? []
         asks = frame.asks ?? []
         if let whole = frame.items {
             items = whole

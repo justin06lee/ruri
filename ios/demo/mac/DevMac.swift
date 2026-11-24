@@ -132,7 +132,7 @@ enum DevMac {
 
         var body: some View {
             switch DevMac.screen {
-            case "chat", "chat-live", "chat-late", "chat-ask", "chat-question", "chat-running":
+            case "chat", "chat-live", "chat-late", "chat-ask", "chat-question", "chat-running", "chat-table":
                 NavigationStack { MadeChat(live: DevMac.screen == "chat-live", late: DevMac.screen == "chat-late") }
             case "project": NavigationStack { ProjectView(name: "orchard") }
             case "pair": PairView()
@@ -210,6 +210,36 @@ enum DevMac {
                     first.asks = asks
                     first.queue = []
                     first.state = .needsYou
+                }
+                // `chat-table`: a reply with a table that fits the screen and
+                // one that doesn't
+                if DevMac.screen == "chat-table" {
+                    first.queue = []
+                    first.state = .idle
+                    first.items = [
+                        ChatItem(id: "u1", kind: .user, text: "How do the lenses compare?", at: .now),
+                        ChatItem(
+                            id: "a1", kind: .assistant,
+                            text: """
+                                Two lenses, side by side:
+
+                                | Lens | Reach | In fog |
+                                |:-----|------:|:------:|
+                                | Clear | 18 nm | **poor** |
+                                | Red | 12 nm | good |
+
+                                And the swaps this month, which is wider than the screen:
+
+                                | Night | Lens fitted | Fitted by | Minutes | What was noted in the keeper's log |
+                                |---|---|---|--:|---|
+                                | Mon 3rd | Red | `lamp swap --lens red` | 10 | Fog from dusk; the clear lens went back in at first light, and nobody was on the water. |
+                                | Thu 6th | Clear | the keeper | 12 | A dry night. |
+
+                                That's all of them.
+                                """,
+                            at: .now
+                        ),
+                    ]
                 }
                 // `chat-running`: the turn has ended, and a script it left
                 // going and an agent are still at it

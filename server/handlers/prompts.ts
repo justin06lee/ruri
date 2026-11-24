@@ -25,6 +25,7 @@ import {
   queueWithCommands,
   stopTurn,
 } from "../dispatch.js";
+import { freshFiles, sameFiles } from "../drafts.js";
 import { combine, reslot, uncombine, type QueueEntry } from "../queue.js";
 import { hooksOf } from "../projectHooks.js";
 import { projectWatch } from "../projectWatch.js";
@@ -401,20 +402,34 @@ export const promptHandlers = {
     const held = ctx.drafts.get(msg.projectId)?.attachments ?? [];
     // A client that says nothing of files (the terminal, which carries
     // words alone) changes the words and leaves the files clipped to them.
-    const attachments = msg.attachments
-      ? msg.attachments.flatMap((att) => {
-          const { data, regions, ...meta } = att;
-          const drawn = regions?.length ? { regions } : {};
-          if (data) return [{ ...meta, ...drawn, url: storeUpload({ ...meta, data }).url }];
-          const stored = held.find((h) => h.id === att.id);
-          return stored ? [{ ...meta, ...drawn, url: stored.url }] : [];
-        })
-      : held;
+    const listed = msg.attachments?.flatMap((att) => {
+      const { data, regions, ...meta } = att;
+      const drawn = regions?.length ? { regions } : {};
+      if (data) {
+        freshFiles.note(att.id, ws);
+        return [{ ...meta, ...drawn, url: storeUpload({ ...meta, data }).url }];
+      }
+      const stored = held.find((h) => h.id === att.id);
+      return stored ? [{ ...meta, ...drawn, url: stored.url }] : [];
+    });
+    // a file another device added a moment ago, which this window's list
+    // cannot know of yet, is not one it took out
+    const attachments = listed ? freshFiles.keep(held, listed, ws) : held;
     ctx.drafts.set(msg.projectId, msg.text, attachments);
     // every other window, and the phone at its next frame, writes on
-    // from here
-    if (msg.text !== before) {
-      ctx.clients.broadcastOthers({ type: "composer_draft", projectId: msg.projectId, text: msg.text }, ws);
+    // from here: the words when they changed, and the files (the whole
+    // list) when a window that lists its files changed those
+    const files = listed !== undefined && !sameFiles(held, attachments);
+    if (msg.text !== before || files) {
+      ctx.clients.broadcastOthers(
+        {
+          type: "composer_draft",
+          projectId: msg.projectId,
+          text: msg.text,
+          ...(listed !== undefined ? { attachments } : {}),
+        },
+        ws,
+      );
     }
     // a prompt that will start a fresh session is ranked against the
     // project as it goes: its meaning, ready before it is sent

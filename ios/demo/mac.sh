@@ -45,10 +45,22 @@ check() {
 # gives way to Swift Testing's runner, and `@testable import Ruri` goes,
 # the tests being in the module themselves. (The UI tests need Xcode.)
 test() {
-  TESTING=/Library/Developer/CommandLineTools/Library/Developer/Frameworks
-  PLUGINS=/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing
+  # Swift Testing comes with whatever is building: the command-line tools,
+  # or an Xcode (DEVELOPER_DIR=…/Xcode.app/Contents/Developer picks one —
+  # the way through when the command-line tools' SDK is newer than this
+  # script, or older)
+  DEV=$(xcode-select -p)
+  if [ -d "$DEV/Platforms/MacOSX.platform/Developer/Library/Frameworks/Testing.framework" ]; then
+    TESTING=$DEV/Platforms/MacOSX.platform/Developer/Library/Frameworks
+    PLUGINS=$DEV/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing
+    TESTLIBS=$DEV/Platforms/MacOSX.platform/Developer/usr/lib
+  else
+    TESTING=$DEV/Library/Developer/Frameworks
+    PLUGINS=$DEV/usr/lib/swift/host/plugins/testing
+    TESTLIBS=$DEV/Library/Developer/usr/lib
+  fi
   [ -d "$TESTING/Testing.framework" ] || {
-    echo "no Swift Testing in the command-line tools: $TESTING" >&2
+    echo "no Swift Testing with these tools: $TESTING" >&2
     exit 1
   }
   WORK=$OUT/tests
@@ -71,7 +83,7 @@ SWIFT
   echo "building $(ls RuriTests/*.swift | wc -l | tr -d ' ') test files with the app…"
   # shellcheck disable=SC2086
   swiftc $FLAGS -Onone -F "$TESTING" -plugin-path "$PLUGINS" \
-    -Xlinker -rpath -Xlinker "$TESTING" -Xlinker -rpath -Xlinker /Library/Developer/CommandLineTools/Library/Developer/usr/lib \
+    -Xlinker -rpath -Xlinker "$TESTING" -Xlinker -rpath -Xlinker "$TESTLIBS" \
     "$WORK"/src/*.swift -o "$WORK/run" 2>&1 | grep -v -e warning -e '^ *[0-9]* |' -e '^ *|' -e note: || true
   [ -x "$WORK/run" ] || {
     echo "the tests didn't build" >&2

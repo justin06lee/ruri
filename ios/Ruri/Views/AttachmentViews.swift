@@ -12,6 +12,9 @@ final class AttachmentPicking {
     private(set) var ready: [Attachment] = []
     private(set) var loading = 0
     var problem: String?
+    /// A file was clipped on here: the chat hands it to the Mac, for every
+    /// window's box.
+    var added: ((Attachment) -> Void)?
 
     func clear() {
         ready = []
@@ -19,6 +22,12 @@ final class AttachmentPicking {
 
     func remove(_ attachment: Attachment) {
         ready.removeAll { $0.id == attachment.id }
+    }
+
+    /// The box as the chat has worked it out: the Mac's files, and this
+    /// phone's own.
+    func take(_ files: [Attachment]) {
+        if files != ready { ready = files }
     }
 
     /// Add a file. Pictures are made fit to send away from the screen.
@@ -43,7 +52,7 @@ final class AttachmentPicking {
             problem = "A prompt can take \(Attaching.maxCount) attachments."
             return
         }
-        guard ready.reduce(0, { $0 + $1.data.count }) + body.count <= Attaching.maxBytes else {
+        guard ready.reduce(0, { $0 + ($1.data?.count ?? 0) }) + body.count <= Attaching.maxBytes else {
             problem = "That's too much to send at once: a prompt can take about 100 MB."
             return
         }
@@ -52,6 +61,7 @@ final class AttachmentPicking {
             n: Attaching.nextNumber(kind, among: ready), data: body
         )
         ready.append(attachment)
+        added?(attachment)
     }
 
     func load(_ picked: [PhotosPickerItem]) async {
@@ -219,9 +229,14 @@ private struct CameraPicker: UIViewControllerRepresentable {
     }
 }
 
-/// What is attached so far, above the field, each with a way to take it off.
+/// What is attached so far, above the field — clipped on here or on any
+/// other device — each with a way to take it off, and a look at it when
+/// held.
 struct AttachmentStrip: View {
     var picking: AttachmentPicking
+    var session: ChatSession
+    /// One was taken off: it leaves the box on every device.
+    var removed: (Attachment) -> Void
     @Environment(\.palette) private var palette
 
     var body: some View {
@@ -229,8 +244,9 @@ struct AttachmentStrip: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(picking.ready) { attachment in
-                        Pending(attachment: attachment) {
+                        Pending(attachment: attachment, session: session) {
                             withAnimation(.snappy) { picking.remove(attachment) }
+                            removed(attachment)
                         }
                     }
                     if picking.loading > 0 {
@@ -248,16 +264,39 @@ struct AttachmentStrip: View {
     }
 }
 
+/// One file in the strip. A tap on its corner takes it off; held, it shows
+/// itself large, with a way to open it whole (Quick Look zooms, plays and
+/// shares) or take it off.
 private struct Pending: View {
     static let side: CGFloat = 64
 
     var attachment: Attachment
+    var session: ChatSession
     var remove: () -> Void
 
+    /// One clipped on at another device, fetched from the Mac.
+    @State private var fetched: Data?
+    @State private var opened: URL?
+
+    private var data: Data? { attachment.data ?? fetched }
+
     var body: some View {
-        Preview(kind: attachment.kind, name: attachment.name, data: attachment.data)
+        Preview(kind: attachment.kind, name: attachment.name, data: data)
             .frame(width: Self.side, height: Self.side)
             .clipShape(.rect(cornerRadius: 12, style: .continuous))
+            .contentShape(.contextMenuPreview, .rect(cornerRadius: 12, style: .continuous))
+            .contextMenu {
+                Button("Open", systemImage: "arrow.up.left.and.arrow.down.right") { Task { await open() } }
+                Button("Remove", systemImage: "trash", role: .destructive, action: remove)
+            } preview: {
+                Look(kind: attachment.kind, name: attachment.name, data: data)
+            }
+            .accessibilityIdentifier("chat.pending")
+            .quickLookPreview($opened)
+            .task(id: attachment.id) {
+                guard attachment.data == nil, attachment.kind == .image else { return }
+                fetched = try? await session.file(attachment.shown)
+            }
             .overlay(alignment: .topTrailing) {
                 Button(action: remove) {
                     Image(systemName: "xmark.circle.fill")
@@ -270,6 +309,45 @@ private struct Pending: View {
                 .offset(x: 6, y: -6)
                 .accessibilityLabel("Remove \(attachment.name)")
             }
+    }
+
+    /// Its bytes — in hand, or from the Mac — where Quick Look can open them.
+    private func open() async {
+        let bytes: Data?
+        if let data { bytes = data } else { bytes = try? await session.file(attachment.shown) }
+        guard let bytes else { return }
+        opened = Attaching.opened(bytes, id: attachment.id, name: attachment.name)
+    }
+}
+
+/// A file held down: a picture at a size to see it, anything else by its
+/// mark and its name.
+private struct Look: View {
+    var kind: ChatAttachment.Kind
+    var name: String
+    var data: Data?
+    @Environment(\.palette) private var palette
+
+    var body: some View {
+        if kind == .image, let data, let image = UIImage(data: data) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .accessibilityLabel(name)
+        } else {
+            VStack(spacing: 10) {
+                Image(systemName: kind == .video ? "play.rectangle" : kind == .image ? "photo" : "doc")
+                    .font(.largeTitle)
+                Text(name)
+                    .font(.ruri(.callout))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(3)
+            }
+            .padding(24)
+            .foregroundStyle(palette.inkSoft)
+            .frame(width: 260, height: 180)
+            .background(palette.bubble)
+        }
     }
 }
 
@@ -342,10 +420,6 @@ struct SentAttachment: View {
         opening = true
         defer { opening = false }
         guard let bytes = try? await session.file(attachment) else { return }
-        let folder = FileManager.default.temporaryDirectory.appending(path: attachment.id, directoryHint: .isDirectory)
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let file = folder.appending(path: (attachment.name as NSString).lastPathComponent)
-        guard (try? bytes.write(to: file, options: .atomic)) != nil else { return }
-        opened = file
+        opened = Attaching.opened(bytes, id: attachment.id, name: attachment.name)
     }
 }

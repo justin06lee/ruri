@@ -61,6 +61,20 @@ final class ChatSession {
     private var typedAt = Date.distantPast
     /// What was typed, on its way to the Mac.
     private var drafting: Task<Void, Never>?
+    /// Files clipped on here that the Mac has yet to say its box holds: on
+    /// their way, or staying here (a Mac out of reach, or from before boxes
+    /// shared their files) to go with the prompt.
+    private var attaching: Set<String> = []
+    /// Files taken off here, or sent from here, that the Mac's box still
+    /// lists: it has yet to hear.
+    private var detaching: Set<String> = []
+    /// The last word to the Mac on the box's files. Each waits for the one
+    /// before, so a file taken off is never heard of before it was clipped
+    /// on, and a prompt never goes ahead of the files it names.
+    private var filing: Task<Void, Never>?
+    /// Counts up when the box's files should be read again though the Mac
+    /// said nothing new: something asked of it didn't happen.
+    private(set) var boxTurns = 0
 
     private let model: RuriModel
     /// The computer the chat is on, by its device id: what is on its way
@@ -218,7 +232,14 @@ final class ChatSession {
     func send(_ text: String, attachments: [Attachment] = [], now: Bool = false) {
         let words = Attaching.prompt(text, naming: attachments)
         guard !words.isEmpty else { return }
-        for attachment in attachments { files.setObject(attachment.data as NSData, forKey: attachment.id as NSString) }
+        for attachment in attachments {
+            if let data = attachment.data { files.setObject(data as NSData, forKey: attachment.id as NSString) }
+        }
+        // they leave the box with the prompt: the Mac takes them out of its
+        // own when it takes the prompt, and until it says so they stay gone
+        let sent = Set(attachments.map(\.id))
+        attaching.subtract(sent)
+        detaching.formUnion(sent)
         let outgoing = Outgoing(
             id: UUID().uuidString.lowercased(), text: words, attachments: attachments, now: now && busy,
             behind: busy, state: .sending
@@ -258,6 +279,65 @@ final class ChatSession {
     func draftFromElsewhere(replacing current: String) -> String? {
         guard drafting == nil, Date.now.timeIntervalSince(typedAt) > 2, log.draft != current else { return nil }
         return log.draft
+    }
+
+    // MARK: the box's files, the same on every device
+
+    /// The files the box shows: what the Mac says it holds, with what this
+    /// phone has done since that it has yet to hear of.
+    func boxFiles(holding here: [Attachment]) -> [Attachment] {
+        let listed = Set(log.draftAttachments.map(\.id))
+        // the Mac lists it: it is the box's now, on every device
+        attaching.subtract(listed)
+        // the Mac no longer lists it: it has heard
+        detaching.formIntersection(listed)
+        return Attaching.box(mac: log.draftAttachments, here: here, attaching: attaching, detaching: detaching)
+    }
+
+    /// A file was clipped on here: the Mac is handed it, and every window's
+    /// box shows it. Should the Mac not take it, it stays here and goes
+    /// with the prompt.
+    func attached(_ attachment: Attachment) {
+        guard let data = attachment.data else { return }
+        files.setObject(data as NSData, forKey: attachment.id as NSString)
+        attaching.insert(attachment.id)
+        guard !made else { return }
+        file {
+            // taken off again before its turn came
+            guard self.attaching.contains(attachment.id) else { return }
+            guard let (client, address, port) = try? await self.model.line(to: self.machine) else { return }
+            try? await client.draft(add: [attachment], chat: self.chat, at: address, port: port)
+        }
+    }
+
+    /// A file was taken off here: it leaves every window's box. Should the
+    /// Mac not hear of one it holds, it comes back, with why.
+    func detached(_ attachment: Attachment) {
+        let local = attaching.remove(attachment.id) != nil
+        detaching.insert(attachment.id)
+        guard !made else { return }
+        file {
+            do {
+                let (client, address, port) = try await self.model.line(to: self.machine)
+                try await client.draft(remove: [attachment.id], chat: self.chat, at: address, port: port)
+            } catch {
+                // one that never left this phone is simply gone
+                guard !local, self.log.draftAttachments.contains(where: { $0.id == attachment.id }) else { return }
+                self.detaching.remove(attachment.id)
+                self.boxTurns += 1
+                self.problem = "Couldn't reach your Mac: the attachment is still there."
+            }
+        }
+    }
+
+    /// Say something to the Mac about the box's files, after whatever was
+    /// said before.
+    private func file(_ say: @escaping @MainActor () async -> Void) {
+        let before = filing
+        filing = Task {
+            await before?.value
+            await say()
+        }
     }
 
     // MARK: the queue, and stopping
@@ -326,6 +406,11 @@ final class ChatSession {
     }
 
     func discard(_ id: String) {
+        // its files never went: any the Mac's box still holds show again
+        if let gone = outbox.first(where: { $0.id == id }) {
+            detaching.subtract(gone.attachments.map(\.id))
+            boxTurns += 1
+        }
         outbox.removeAll { $0.id == id }
     }
 
@@ -333,12 +418,22 @@ final class ChatSession {
     /// sent under the same id every time, so the Mac runs it once.
     private func deliver(_ id: String) {
         Task {
+            // after its files: one still on its way to the Mac's box must
+            // land there first, for the prompt to take it out again
+            await filing?.value
             var tries = 0
             while let outgoing = outbox.first(where: { $0.id == id }) {
                 do {
                     let (client, address, port) = try await model.line(to: machine)
+                    // a file the Mac's box holds goes by its id alone
+                    let boxed = Set(log.draftAttachments.map(\.id))
+                    let files = outgoing.attachments.map { attachment in
+                        var named = attachment
+                        if boxed.contains(attachment.id) { named.data = nil }
+                        return named
+                    }
                     let went = try await client.send(
-                        outgoing.text, attachments: outgoing.attachments, now: outgoing.now, to: chat, id: id,
+                        outgoing.text, attachments: files, now: outgoing.now, to: chat, id: id,
                         at: address, port: port
                     )
                     mark(id, went == .failed ? .failed("ruri couldn't take it.") : .sent(went))

@@ -377,6 +377,17 @@ final class MacClient: Sendable {
         try await act(["id": chat, "text": text], to: "/chat/draft", at: address, port: port)
     }
 
+    /// Files clipped to a chat's prompt here, with their bytes: every
+    /// window's box shows them. As long as a send's files take.
+    func draft(add files: [Attachment], chat: String, at address: String, port: Int) async throws {
+        try await act(DraftFilesBody(id: chat, add: files), to: "/chat/draft", at: address, port: port, timeout: 120)
+    }
+
+    /// Files taken off a chat's prompt here: they leave every window's box.
+    func draft(remove ids: [String], chat: String, at address: String, port: Int) async throws {
+        try await act(DraftFilesBody(id: chat, remove: ids), to: "/chat/draft", at: address, port: port)
+    }
+
     /// Stop the turn a chat is running. Its queue stands by.
     func stop(_ chat: String, at address: String, port: Int) async throws {
         try await act(["id": chat], to: "/chat/stop", at: address, port: port)
@@ -405,8 +416,10 @@ final class MacClient: Sendable {
     /// A small POST about a chat, answered { ok }. A Mac whose ruri is from
     /// before the phone could do this refuses the path: outdated.
     @discardableResult
-    private func act(_ body: some Encodable, to path: String, at address: String, port: Int) async throws -> Bool {
-        var request = try request(address, port: port, path: path, timeout: 15)
+    private func act(
+        _ body: some Encodable, to path: String, at address: String, port: Int, timeout: TimeInterval = 15
+    ) async throws -> Bool {
+        var request = try request(address, port: port, path: path, timeout: timeout)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.httpBody = try JSONEncoder().encode(body)

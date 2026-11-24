@@ -9,11 +9,20 @@ enum MarkdownBlock: Equatable {
     case code(language: String?, text: String)
     case quote(String)
     case rule
+    /// A table: its header's cells, how each column is set, and its rows,
+    /// each as wide as the header.
+    case table(header: [String], columns: [Column], rows: [[String]])
+
+    /// How a table's column is set, as its delimiter row says (`:--`,
+    /// `:-:`, `--:`).
+    enum Column: Equatable {
+        case leading, center, trailing
+    }
 }
 
 /// Splits markdown into its blocks. Small on purpose: headings, paragraphs,
-/// bullet and numbered lists, fenced code, quotes and rules — what agents
-/// write. Inline styles (bold, italic, code, links) stay in the text and are
+/// bullet and numbered lists, fenced code, quotes, rules and tables — what
+/// agents write. Inline styles (bold, italic, code, links) stay in the text and are
 /// read by `MarkdownBlock.attributed`.
 enum MarkdownParser {
     static func parse(_ source: String) -> [MarkdownBlock] {
@@ -47,6 +56,21 @@ enum MarkdownParser {
                 blocks.append(.code(language: fence.language, text: code.joined(separator: "\n")))
             } else if trimmed.isEmpty {
                 flush()
+            } else if let header = cells(trimmed), let columns = lines.first.flatMap(delimiter),
+                      columns.count == header.count {
+                // a row of cells with a row of dashes under it is a table;
+                // until the dashes arrive (a reply being written) it reads
+                // as the words it is
+                flush()
+                lines.removeFirst()
+                var rows: [[String]] = []
+                while let next = lines.first, !next.trimmingCharacters(in: .whitespaces).isEmpty,
+                      let row = cells(next.trimmingCharacters(in: .whitespaces)) {
+                    lines.removeFirst()
+                    // as wide as its header: short rows filled out, long ones cut
+                    rows.append((0..<header.count).map { $0 < row.count ? row[$0] : "" })
+                }
+                blocks.append(.table(header: header, columns: columns, rows: rows))
             } else if let heading = heading(trimmed) {
                 flush()
                 blocks.append(heading)
@@ -80,6 +104,57 @@ enum MarkdownParser {
             return (marker, language.isEmpty ? nil : language)
         }
         return nil
+    }
+
+    /// A table row's cells, or nil for a line with no bar in it. A bar
+    /// inside `code`, or written `\|` (there too), is the cell's own.
+    private static func cells(_ line: String) -> [String]? {
+        guard line.contains("|") else { return nil }
+        var text = Substring(line)
+        if text.hasPrefix("|") { text = text.dropFirst() }
+        if text.hasSuffix("|"), !text.hasSuffix("\\|") { text = text.dropLast() }
+        var out: [String] = []
+        var cell = ""
+        var inCode = false
+        var escaped = false
+        for character in text {
+            if escaped {
+                // only a bar is unescaped here: the rest is the inline reader's
+                if character != "|" { cell.append("\\") }
+                cell.append(character)
+                escaped = false
+            } else if character == "\\" {
+                escaped = true
+            } else if character == "`" {
+                inCode.toggle()
+                cell.append(character)
+            } else if character == "|", !inCode {
+                out.append(cell.trimmingCharacters(in: .whitespaces))
+                cell = ""
+            } else {
+                cell.append(character)
+            }
+        }
+        if escaped { cell.append("\\") }
+        out.append(cell.trimmingCharacters(in: .whitespaces))
+        return out
+    }
+
+    /// The row under a table's header, dashes with a colon where a column
+    /// is set to one side — or nil for any other line.
+    private static func delimiter(_ line: String) -> [MarkdownBlock.Column]? {
+        guard let marks = cells(line.trimmingCharacters(in: .whitespaces)) else { return nil }
+        var columns: [MarkdownBlock.Column] = []
+        for mark in marks {
+            let dashes = mark.drop(while: { $0 == ":" }).prefix(while: { $0 == "-" })
+            let after = mark.drop(while: { $0 == ":" }).dropFirst(dashes.count)
+            guard !dashes.isEmpty, after.isEmpty || after == ":", mark.prefix(while: { $0 == ":" }).count <= 1
+            else { return nil }
+            let left = mark.hasPrefix(":")
+            let right = mark.hasSuffix(":")
+            columns.append(left && right ? .center : right ? .trailing : .leading)
+        }
+        return columns
     }
 
     private static func heading(_ line: String) -> MarkdownBlock? {
@@ -149,6 +224,15 @@ extension MarkdownBlock {
             return code
         case .rule:
             return AttributedString()
+        case .table(let header, _, let rows):
+            // a row a line, its cells apart
+            return ([header] + rows).enumerated().reduce(into: AttributedString()) { result, row in
+                if row.offset > 0 { result += AttributedString("\n") }
+                for (at, cell) in row.element.enumerated() {
+                    if at > 0 { result += AttributedString(" · ") }
+                    result += Self.attributed(cell)
+                }
+            }
         }
     }
 }
@@ -247,6 +331,70 @@ private struct MarkdownBlockView: View {
             .fixedSize(horizontal: false, vertical: true)
         case .rule:
             palette.hairline.frame(height: 1)
+        case .table(let header, let columns, let rows):
+            MarkdownTable(header: header, columns: columns, rows: rows, font: font)
         }
+    }
+}
+
+/// A table as a grid: columns as wide as what is in them, up to a width
+/// past which a cell's words wrap; wider than the screen, it scrolls
+/// sideways rather than squeezing.
+private struct MarkdownTable: View {
+    var header: [String]
+    var columns: [MarkdownBlock.Column]
+    var rows: [[String]]
+    var font: Font
+    @Environment(\.palette) private var palette
+
+    /// A column is never wider than this.
+    private let widest: CGFloat = 220
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            Grid(alignment: .topLeading, horizontalSpacing: 0, verticalSpacing: 0) {
+                GridRow {
+                    ForEach(header.indices, id: \.self) { column in
+                        cell(header[column], column: column, heading: true)
+                    }
+                }
+                ForEach(rows.indices, id: \.self) { row in
+                    line(heavy: row == 0)
+                    GridRow {
+                        ForEach(header.indices, id: \.self) { column in
+                            cell(rows[row][column], column: column, heading: false)
+                        }
+                    }
+                }
+            }
+            .background(palette.paper)
+            .clipShape(.rect(cornerRadius: 10, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(palette.hairline, lineWidth: 1)
+            }
+        }
+    }
+
+    /// The rule between two rows; the one under the header a little firmer.
+    private func line(heavy: Bool) -> some View {
+        (heavy ? palette.inkFaint.opacity(0.5) : palette.hairline)
+            .frame(height: 1)
+            .gridCellUnsizedAxes(.horizontal)
+    }
+
+    private func cell(_ text: String, column: Int, heading: Bool) -> some View {
+        let side = column < columns.count ? columns[column] : .leading
+        var words = MarkdownBlock.attributed(text)
+        if heading { words.inlinePresentationIntent = .stronglyEmphasized }
+        return Text(words)
+            .font(font)
+            .lineSpacing(2)
+            .multilineTextAlignment(side == .center ? .center : side == .trailing ? .trailing : .leading)
+            .frame(maxWidth: widest, alignment: side == .center ? .center : side == .trailing ? .trailing : .leading)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: side == .center ? .center : side == .trailing ? .trailing : .leading)
+            .background(heading ? palette.paperDim : Color.clear)
     }
 }

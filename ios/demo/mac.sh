@@ -13,7 +13,8 @@
 #                                  link, when given one)
 #   ios/demo/mac.sh demo <screen>  build, then open it on made-up data: home,
 #                                  project, chat, chat-ask, chat-question,
-#                                  chat-running, pair, pair-another or mac
+#                                  chat-running, chat-table, pair,
+#                                  pair-another or mac
 set -eu
 cd "$(dirname "$0")/.."
 

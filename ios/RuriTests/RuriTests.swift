@@ -356,6 +356,53 @@ struct MarkdownTests {
         ])
     }
 
+    @Test func readsATable() {
+        let blocks = MarkdownParser.parse("""
+        Here it is:
+
+        | Build | Size | Notes |
+        |:------|-----:|:-----:|
+        | desktop | 212 MB | **notarized** |
+        | phone | 9 MB |
+        | `a \\| b` | 1 \\| 2 | x | extra |
+
+        After it.
+        """)
+        #expect(blocks == [
+            .paragraph("Here it is:"),
+            .table(
+                header: ["Build", "Size", "Notes"],
+                columns: [.leading, .trailing, .center],
+                rows: [
+                    ["desktop", "212 MB", "**notarized**"],
+                    // a short row is filled out, a long one cut to the header
+                    ["phone", "9 MB", ""],
+                    // an escaped bar is the cell's own, in code too
+                    ["`a | b`", "1 | 2", "x"],
+                ]
+            ),
+            .paragraph("After it."),
+        ])
+    }
+
+    @Test func aTableNeedsItsRowOfDashes() {
+        // no leading or trailing bars is still a table
+        #expect(MarkdownParser.parse("a | b\n--- | ---\n1 | 2") == [
+            .table(header: ["a", "b"], columns: [.leading, .leading], rows: [["1", "2"]])
+        ])
+        // words with a bar in them are words, and so is a header still
+        // waiting for its dashes (a reply being written)
+        #expect(MarkdownParser.parse("yes | no") == [.paragraph("yes | no")])
+        #expect(MarkdownParser.parse("| a | b |") == [.paragraph("| a | b |")])
+        // dashes for another number of columns are not this header's
+        #expect(MarkdownParser.parse("| a | b |\n|---|") == [.paragraph("| a | b |\n|---|")])
+        // a rule under a line with a bar is a rule
+        #expect(MarkdownParser.parse("a | b\n---") == [.paragraph("a | b"), .rule])
+        // collapsed, a table reads a row a line
+        let table = MarkdownParser.parse("| a | b |\n|---|---|\n| 1 | 2 |")[0]
+        #expect(String(table.flattened.characters) == "a · b\n1 · 2")
+    }
+
     @Test func keepsWhatIsNotMarkdown() {
         #expect(MarkdownParser.parse("#nospace is a tag\n3.14 is pi\n-5 degrees") ==
             [.paragraph("#nospace is a tag\n3.14 is pi\n-5 degrees")])

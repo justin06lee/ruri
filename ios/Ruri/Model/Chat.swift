@@ -162,6 +162,8 @@ struct ChatFrame: Codable, Sendable {
     var held: Bool?
     /// What is written in the chat's prompt box and not sent, on any device.
     var draft: String?
+    /// The files clipped to it, on any device, as the Mac has them on file.
+    var draftAttachments: [ChatAttachment]?
     /// The cards the chat waits at, oldest first.
     var asks: [ChatAsk]?
     var items: [ChatItem]?
@@ -199,6 +201,8 @@ struct ChatLog: Equatable, Sendable {
     var held = false
     /// What is written in the chat's prompt box and not sent, on any device.
     var draft = ""
+    /// The files clipped to it, on any device, as the Mac has them on file.
+    var draftAttachments: [ChatAttachment] = []
     /// The cards the chat waits at, oldest first.
     var asks: [ChatAsk] = []
     private(set) var items: [ChatItem] = []
@@ -212,7 +216,8 @@ struct ChatLog: Equatable, Sendable {
         state = frame.state
         queue = frame.queue
         held = frame.held ?? false
-        draft = frame.draft ?? ""
+        draft = Attaching.plain(frame.draft ?? "")
+        draftAttachments = frame.draftAttachments ?? []
         asks = frame.asks ?? []
         if let whole = frame.items {
             items = whole
@@ -245,6 +250,14 @@ struct SendBody: Encodable, Sendable {
     var attachments: [Attachment]?
     /// Cut in on the turn that is running, rather than wait behind it.
     var now: Bool?
+}
+
+/// What POST /chat/draft carries when the box's files change: some clipped
+/// on, with their bytes, or some taken off, by their ids.
+struct DraftFilesBody: Encodable, Sendable {
+    var id: String
+    var add: [Attachment]?
+    var remove: [String]?
 }
 
 /// What POST /chat/queue carries: a queued prompt sent now or taken out,

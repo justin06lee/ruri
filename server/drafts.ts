@@ -96,3 +96,60 @@ export class DraftStore {
     }, WRITE_DELAY_MS);
   }
 }
+
+/* ── the box's files, the same on every device ───────────────────── */
+
+/** Whether two lists hold the same files, numbered and marked the same —
+ *  in any order: each window keeps its own, and telling one of another's
+ *  order would have the two correct each other for ever. */
+export function sameFiles(a: readonly DraftAttachment[], b: readonly DraftAttachment[]): boolean {
+  if (a.length !== b.length) return false;
+  const read = (att: DraftAttachment) => JSON.stringify([att.n, att.regions ?? []]);
+  const held = new Map(a.map((att) => [att.id, read(att)]));
+  return b.every((att) => held.get(att.id) === read(att));
+}
+
+/** How long a file one device added is safe from a list that leaves it
+ *  out: long enough for the news of it to reach every window. */
+const FRESH_MS = 3_000;
+
+/**
+ * Files added to a box a moment ago, and by whom. A window saves its box
+ * whole, so a save already on its way when another device (the phone,
+ * another window) added a file says nothing of that file — which reads as
+ * the file taken out. For a few seconds after a file is added, only the
+ * one who added it — or one whose own list has since had it, and so has
+ * heard — can take it out by leaving it off its list.
+ */
+export class FreshFiles {
+  private readonly added = new Map<string, { at: number; knows: Set<unknown> }>();
+
+  constructor(private readonly now: () => number = Date.now) {}
+
+  /** A file was added, by `by` (a window's socket, or anything that names
+   *  who: the phone has no socket). */
+  note(id: string, by: unknown): void {
+    const at = this.now();
+    for (const [old, entry] of this.added) if (at - entry.at > FRESH_MS) this.added.delete(old);
+    this.added.set(id, { at, knows: new Set([by]) });
+  }
+
+  /** `next`, with whatever of `held` it leaves out only because `by`
+   *  cannot have heard of it yet. */
+  keep(held: readonly DraftAttachment[], next: DraftAttachment[], by: unknown): DraftAttachment[] {
+    const at = this.now();
+    const listed = new Set(next.map((att) => att.id));
+    // whoever lists a file has heard of it
+    for (const id of listed) this.added.get(id)?.knows.add(by);
+    const unheard = held.filter((att) => {
+      if (listed.has(att.id)) return false;
+      const entry = this.added.get(att.id);
+      return entry !== undefined && !entry.knows.has(by) && at - entry.at <= FRESH_MS;
+    });
+    return unheard.length ? [...next, ...unheard] : next;
+  }
+}
+
+/** The one list of fresh files: the window's handler and the phone's
+ *  routes both write a chat's box. */
+export const freshFiles = new FreshFiles();

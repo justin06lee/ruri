@@ -3,6 +3,7 @@ import {
   CARRY_ON,
   type AskAnswers,
   type AskQuestion,
+  type DraftAttachment,
   type LetterFrom,
   type ModelChoice,
   type PermissionRequest,
@@ -15,6 +16,7 @@ import {
 import { moveInLayout, setFolder, type SidebarLayout } from "../shared/sidebar.js";
 import type { ClientConn, ServerContext } from "./context.js";
 import {
+  boxedUploads,
   nextFrame,
   phoneAnswer,
   phoneAsks,
@@ -27,6 +29,7 @@ import {
   phoneSidebar,
   phoneStop,
   readAnswerBody,
+  readDraftBody,
   readQueueBody,
   readSendBody,
   readSidebarBody,
@@ -190,6 +193,11 @@ describe("a send from the phone", () => {
   test("only the fields it may set get through", () => {
     const body = send({ attachments: [{ ...file, url: "/x", picture: "aGk=", regions: [] }] });
     expect(Object.keys(body!.uploads[0]!).sort()).toEqual(["data", "id", "kind", "mediaType", "n", "name"]);
+  });
+
+  test("a file the prompt box already holds goes by its id alone", () => {
+    const { data: _data, ...named } = file;
+    expect(send({ text: "", attachments: [named] })?.uploads).toEqual([named]);
   });
 
   test("cuts in only when it says so", () => {
@@ -526,13 +534,16 @@ describe("the phone's model menu", () => {
 describe("a prompt box the same on every device", () => {
   /** Drafts as the server keeps them, and what each window is told. */
   function world() {
-    const drafts = new Map<string, { text: string; attachments?: { id: string }[] }>();
+    const drafts = new Map<
+      string,
+      { text: string; attachments?: Array<Partial<DraftAttachment> & { id: string }> }
+    >();
     const told: Array<{ to: string; message: ServerMessage }> = [];
     const windows = ["a", "b"];
     const ctx = {
       drafts: {
         get: (id: string) => drafts.get(id),
-        set: (id: string, text: string, attachments?: { id: string }[]) =>
+        set: (id: string, text: string, attachments?: Array<Partial<DraftAttachment> & { id: string }>) =>
           drafts.set(id, { text, ...(attachments ? { attachments } : {}) }),
       },
       clients: {
@@ -595,8 +606,154 @@ describe("a prompt box the same on every device", () => {
     phoneDraft(w.ctx, "c", "from the train");
     expect(w.drafts.get("c")).toEqual({ text: "from the train", attachments: [{ id: "f1" }] });
     expect(w.told.map((t) => t.to)).toEqual(["a", "b"]);
+    // words alone: nothing is said of the files, so every window keeps its own
+    expect(w.told[0]!.message).toEqual({ type: "composer_draft", projectId: "c", text: "from the train" });
     phoneDraft(w.ctx, "c", "from the train");
     expect(w.told.length).toBe(2);
+  });
+
+  test("the phone reads and writes a marker with a plain space; the window's own stands", () => {
+    const w = world();
+    // as a window saves it: the space inside the marker unbreakable
+    w.drafts.set("c", { text: "see [image\u00a0#1] here" });
+    // the same words back from the phone change nothing, and tell nobody
+    phoneDraft(w.ctx, "c", "see [image #1] here");
+    expect(w.drafts.get("c")?.text).toBe("see [image\u00a0#1] here");
+    expect(w.told).toEqual([]);
+    // new words are taken as the phone wrote them
+    phoneDraft(w.ctx, "c", "see [image #1] here too");
+    expect(w.drafts.get("c")?.text).toBe("see [image #1] here too");
+    expect(w.told.length).toBe(2);
+  });
+
+  const png = (id: string, n = 1) => ({
+    id,
+    kind: "image" as const,
+    mediaType: "image/png",
+    name: `${id}.png`,
+    n,
+  });
+
+  test("a file clipped on in one window is in every other window's box, and one taken off leaves them", () => {
+    const w = world();
+    // a window is known by its socket, the same one each time it saves
+    const second = w.window("b");
+    void promptHandlers.draft(w.ctx, w.window("a"), {
+      type: "draft",
+      projectId: "c",
+      text: "look",
+      attachments: [{ ...png("w1"), data: "aGk=" }],
+    });
+    const stored = [{ ...png("w1"), url: "/uploads/w1-w1.png" }];
+    expect(w.drafts.get("c")).toEqual({ text: "look", attachments: stored });
+    expect(w.told).toEqual([
+      { to: "b", message: { type: "composer_draft", projectId: "c", text: "look", attachments: stored } },
+    ]);
+    // the other window, having taken it, saves the same box: nobody is told
+    void promptHandlers.draft(w.ctx, second, {
+      type: "draft",
+      projectId: "c",
+      text: "look",
+      attachments: [png("w1")],
+    });
+    expect(w.told.length).toBe(1);
+    // taken off there, it leaves the first window's box
+    void promptHandlers.draft(w.ctx, second, {
+      type: "draft",
+      projectId: "c",
+      text: "look",
+      attachments: [],
+    });
+    expect(w.told.at(-1)).toEqual({
+      to: "a",
+      message: { type: "composer_draft", projectId: "c", text: "look", attachments: [] },
+    });
+  });
+
+  test("a file clipped on from the phone is in every window's box, numbered past what is there", () => {
+    const w = world();
+    w.drafts.set("c", { text: "", attachments: [{ ...png("w1"), url: "/uploads/w1-w1.png" }] });
+    const held = phoneDraft(w.ctx, "c", undefined, { add: [{ ...png("p1"), data: "aGk=" }] });
+    // [image #1] was the window's picture: the phone's is #2
+    expect(held).toEqual([
+      { ...png("w1"), url: "/uploads/w1-w1.png" },
+      { ...png("p1", 2), url: "/uploads/p1-p1.png" },
+    ]);
+    expect(w.drafts.get("c")).toEqual({ text: "", attachments: held });
+    expect(w.told.map((t) => t.to)).toEqual(["a", "b"]);
+    expect(w.told[0]!.message).toEqual({
+      type: "composer_draft",
+      projectId: "c",
+      text: "",
+      attachments: held,
+    });
+    // sent twice, after a dropped line, it is there once
+    phoneDraft(w.ctx, "c", undefined, { add: [{ ...png("p1"), data: "aGk=" }] });
+    expect(w.told.length).toBe(2);
+  });
+
+  test("a window's save that was on its way does not take the phone's file back out", () => {
+    const w = world();
+    phoneDraft(w.ctx, "c", undefined, { add: [{ ...png("p2"), data: "aGk=" }] });
+    void promptHandlers.draft(w.ctx, w.window("a"), {
+      type: "draft",
+      projectId: "c",
+      text: "typing",
+      attachments: [],
+    });
+    expect(w.drafts.get("c")?.attachments?.map((att) => att.id)).toEqual(["p2"]);
+  });
+
+  test("a file taken off on the phone leaves every window's box; the words stay", () => {
+    const w = world();
+    const files = [
+      { ...png("w1"), url: "/uploads/w1-w1.png" },
+      { ...png("w2", 2), url: "/uploads/w2-w2.png" },
+    ];
+    w.drafts.set("c", { text: "both", attachments: files });
+    expect(phoneDraft(w.ctx, "c", undefined, { remove: ["w1"] })).toEqual([files[1]!]);
+    expect(w.drafts.get("c")).toEqual({ text: "both", attachments: [files[1]!] });
+    expect(w.told[0]!.message).toEqual({
+      type: "composer_draft",
+      projectId: "c",
+      text: "both",
+      attachments: [files[1]!],
+    });
+    // one that was never there changes nothing, and tells nobody
+    phoneDraft(w.ctx, "c", undefined, { remove: ["nope"] });
+    expect(w.told.length).toBe(2);
+  });
+
+  test("a body changes the words, clips files on or takes them off", () => {
+    expect(readDraftBody({ id: "c", text: "hi" })).toEqual({ id: "c", text: "hi", add: [], remove: [] });
+    expect(readDraftBody({ id: "c", remove: ["w1"] })).toEqual({ id: "c", add: [], remove: ["w1"] });
+    expect(readDraftBody({ id: "c", add: [{ ...png("p1"), data: "aGk=" }] })?.add).toEqual([
+      { ...png("p1"), data: "aGk=" },
+    ]);
+    // nothing to do, a file with no bytes, an id that walks, or no chat
+    expect(readDraftBody({ id: "c" })).toBeUndefined();
+    expect(readDraftBody({ id: "c", add: [png("p1")] })).toBeUndefined();
+    expect(readDraftBody({ id: "c", add: [{ ...png("../x"), data: "aGk=" }] })).toBeUndefined();
+    expect(readDraftBody({ id: "", text: "hi" })).toBeUndefined();
+    expect(readDraftBody({ id: "c", text: 4 })).toBeUndefined();
+  });
+
+  test("a file the box holds is sent from the phone by its id, as the box has it", () => {
+    const w = world();
+    const held = phoneDraft(w.ctx, "c", undefined, { add: [{ ...png("s1"), data: "aGVsbG8=" }] });
+    expect(held.map((att) => att.id)).toEqual(["s1"]);
+    const sent = boxedUploads(w.ctx, "c", [
+      // the phone's word on its name and number is not taken
+      { ...png("s1", 7), name: "renamed.png" },
+      // one the box does not hold is left out
+      png("gone"),
+      // one with its bytes goes as it came
+      { ...png("own", 2), data: "aGk=" },
+    ]);
+    expect(sent).toEqual([
+      { ...png("s1"), data: "aGVsbG8=" },
+      { ...png("own", 2), data: "aGk=" },
+    ]);
   });
 });
 

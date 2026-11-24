@@ -95,6 +95,7 @@ import { hydratePrefs } from "./prefs";
 import { isAwake, subscribeAwake } from "./lib/awake";
 import { Held } from "./lib/held";
 import { fileToBase64 } from "./lib/files";
+import { holdMarkers } from "./lib/markers";
 import { pictureStored } from "./pictures";
 
 export interface Draft {
@@ -136,15 +137,28 @@ const storedAttachments = new Set<string>();
  *  and all, the moment the socket is back. */
 const unsavedDrafts = new Set<string>();
 
+/** Files another device clipped to a channel's prompt, on their way into
+ *  this window: each is fetched into a live File before the composer can
+ *  hold it. A save that goes out meanwhile lists them too — left off, the
+ *  server would take them for taken off. */
+const arriving = new Map<string, Map<string, DraftAttachment>>();
+
 /** Hand the channel's draft to the server, a beat after typing stops. */
-function persistDraft(channelId: string, draft: ComposerDraft): void {
+function persistDraft(channelId: string, scheduled: ComposerDraft): void {
   clearTimeout(draftTimers.get(channelId));
   draftTimers.set(
     channelId,
     setTimeout(() => {
       draftTimers.delete(channelId);
       void (async () => {
-        const attachments: DraftAttachmentUpload[] = await Promise.all(
+        // as it stands now: a file from another device may have landed in
+        // it since this save was put off
+        const draft = composerDrafts.get(channelId) ?? scheduled;
+        const listed = new Set(draft.atts.map((att) => att.id));
+        const onTheirWay = [...(arriving.get(channelId)?.values() ?? [])].filter(
+          (att) => !listed.has(att.id),
+        );
+        const held: DraftAttachmentUpload[] = await Promise.all(
           draft.atts.map(async (att) => ({
             id: att.id,
             kind: att.kind,
@@ -155,6 +169,7 @@ function persistDraft(channelId: string, draft: ComposerDraft): void {
             ...(storedAttachments.has(att.id) ? {} : { data: await fileToBase64(att.file) }),
           })),
         );
+        const attachments = [...held, ...onTheirWay];
         if (send({ type: "draft", projectId: channelId, text: draft.text, attachments })) {
           for (const att of draft.atts) storedAttachments.add(att.id);
           unsavedDrafts.delete(channelId);
@@ -198,6 +213,7 @@ export function clearComposerDraft(channelId: string): void {
   for (const att of composerDrafts.get(channelId)?.atts ?? []) storedAttachments.delete(att.id);
   composerDrafts.delete(channelId);
   draftedChannels.delete(channelId);
+  arriving.delete(channelId);
   clearTimeout(draftTimers.get(channelId));
   draftTimers.delete(channelId);
   // a clear the socket drops would bring the sent prompt back as a draft on
@@ -281,12 +297,99 @@ export function quietBump(channelId: string): boolean {
   return quietBumps.delete(channelId);
 }
 
+const NO_MARKERS = { image: 0, video: 0, file: 0, region: 0 };
+
+/** Marker numbers that go on from whatever these files already took. */
+function countedPast(counter: ComposerDraft["counter"], atts: ComposerAttachment[]): ComposerDraft["counter"] {
+  const next = { ...counter };
+  for (const att of atts) {
+    next[att.kind] = Math.max(next[att.kind], att.n);
+    for (const region of att.regions) next.region = Math.max(next.region, region.n);
+  }
+  return next;
+}
+
+/**
+ * The files clipped to a chat's unsent prompt, as another device left
+ * them (another window, the phone) — the whole list. One taken off there
+ * leaves this window's strip; one added there is fetched and joins it;
+ * boxes drawn on one there are drawn here. Whatever is being typed here
+ * stays as it is: files are not words, and landing one never costs a
+ * keystroke.
+ */
+function filesFromElsewhere(channelId: string, listed: DraftAttachment[]): void {
+  const want = new Map(listed.map((att) => [att.id, att]));
+  const prev = composerDrafts.get(channelId);
+  const held = prev?.atts ?? [];
+  let changed = false;
+  const atts = held.flatMap((att) => {
+    const theirs = want.get(att.id);
+    if (!theirs) {
+      // taken off there
+      URL.revokeObjectURL(att.objectUrl);
+      storedAttachments.delete(att.id);
+      changed = true;
+      return [];
+    }
+    const regions = theirs.regions ?? [];
+    if (att.n === theirs.n && JSON.stringify(att.regions) === JSON.stringify(regions)) return [att];
+    changed = true;
+    return [{ ...att, n: theirs.n, regions }];
+  });
+  if (changed) {
+    composerDrafts.set(channelId, {
+      text: prev?.text ?? "",
+      atts,
+      counter: countedPast(prev?.counter ?? NO_MARKERS, atts),
+    });
+    quietBumps.add(channelId);
+    bumpDraft(channelId);
+  }
+  // added there: each is fetched, and lands when it has arrived
+  const waiting = arriving.get(channelId) ?? new Map<string, DraftAttachment>();
+  for (const id of [...waiting.keys()]) if (!want.has(id)) waiting.delete(id);
+  const have = new Set(held.map((att) => att.id));
+  const fresh = listed.filter((att) => !have.has(att.id) && !waiting.has(att.id));
+  for (const att of fresh) waiting.set(att.id, att);
+  if (waiting.size) arriving.set(channelId, waiting);
+  else arriving.delete(channelId);
+  for (const att of fresh) {
+    void liveAttachment(att, att.n).then((live) => {
+      const expected = arriving.get(channelId);
+      if (!expected?.has(att.id)) {
+        // taken off again, or the prompt sent, while it was on its way
+        if (live) URL.revokeObjectURL(live.objectUrl);
+        return;
+      }
+      expected.delete(att.id);
+      if (expected.size === 0) arriving.delete(channelId);
+      const draft = composerDrafts.get(channelId);
+      if (!live || draft?.atts.some((held) => held.id === att.id)) return;
+      const landed = [...(draft?.atts ?? []), live];
+      composerDrafts.set(channelId, {
+        text: draft?.text ?? "",
+        atts: landed,
+        counter: countedPast(draft?.counter ?? NO_MARKERS, landed),
+      });
+      draftedChannels.add(channelId);
+      quietBumps.add(channelId);
+      bumpDraft(channelId);
+    });
+  }
+}
+
 /** A chat's unsent prompt, changed on another device (another window, the
- *  phone): taken into this window's composer — its attachments kept —
- *  unless this window was typed in a moment ago. */
-function draftFromElsewhere(channelId: string, text: string): void {
+ *  phone): its words are taken into this window's composer unless this
+ *  window was typed in a moment ago; its files, when the message lists
+ *  them, are taken either way (filesFromElsewhere). */
+function draftFromElsewhere(channelId: string, words: string, attachments?: DraftAttachment[]): void {
+  if (attachments) filesFromElsewhere(channelId, attachments);
   if (Date.now() - (typedAt.get(channelId) ?? 0) < TYPING_MS) return;
   const prev = composerDrafts.get(channelId);
+  // as the composer keeps it (the phone writes a marker with a plain
+  // space): taken as it came, the composer would rewrite it, count that as
+  // typing here, and turn away the next words from there
+  const text = holdMarkers(words);
   if ((prev?.text ?? "") === text) return;
   composerDrafts.set(channelId, {
     text,
@@ -2100,7 +2203,7 @@ function apply(msg: ServerMessage): void {
       break;
     }
     case "composer_draft": {
-      draftFromElsewhere(msg.projectId, msg.text);
+      draftFromElsewhere(msg.projectId, msg.text, msg.attachments);
       break;
     }
     case "queued": {

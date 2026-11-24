@@ -765,8 +765,15 @@ describe("the shell command", () => {
       expect(tuiCommand(path.join(dir, "dist"), "/Applications/ruri.app/Contents/MacOS/ruri")).toBe(
         `env ELECTRON_RUN_AS_NODE=1 '/Applications/ruri.app/Contents/MacOS/ruri' '${path.join(dir, "dist", "tui.mjs")}'`,
       );
-      // a bundle with no app to run it is not a way to start it
-      expect(tuiCommand(path.join(dir, "dist"), undefined)).toBeUndefined();
+      // a bundle with no app to run it is not a way to start it (none named
+      // here, and none in the air: the suite may itself be run from the app)
+      const app = process.env["RURI_APP_EXE"];
+      delete process.env["RURI_APP_EXE"];
+      try {
+        expect(tuiCommand(path.join(dir, "dist"), undefined)).toBeUndefined();
+      } finally {
+        if (app !== undefined) process.env["RURI_APP_EXE"] = app;
+      }
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

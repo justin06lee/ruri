@@ -484,6 +484,73 @@ struct AttachingTests {
         #expect(Attaching.afterMarkers("") == "")
     }
 
+    private func held(_ n: Int) -> ChatAttachment {
+        ChatAttachment(id: "a\(n)", kind: .image, mediaType: "image/png", name: "x.png", n: n, url: "/uploads/a\(n).png")
+    }
+
+    @Test func theBoxShowsWhatTheMacHoldsAndWhatIsOnItsWayThere() {
+        // clipped on at the Mac: shown here, with no bytes of its own
+        let fromMac = Attaching.box(mac: [held(1)], here: [], attaching: [], detaching: [])
+        #expect(fromMac.map(\.id) == ["a1"])
+        #expect(fromMac[0].data == nil)
+        #expect(fromMac[0].url == "/uploads/a1.png")
+        // clipped on here, and the Mac has yet to say it holds it: it stays
+        #expect(Attaching.box(mac: [], here: [image(2)], attaching: ["a2"], detaching: []).map(\.id) == ["a2"])
+        // once the Mac lists it, it keeps its bytes and takes the Mac's number
+        var renumbered = held(2)
+        renumbered.n = 5
+        let landed = Attaching.box(mac: [held(1), renumbered], here: [image(2)], attaching: [], detaching: [])
+        #expect(landed.map(\.id) == ["a1", "a2"])
+        #expect(landed[1].data == Data([1]))
+        #expect(landed[1].n == 5)
+        // taken off at the Mac: gone here, since nothing says it is on its way
+        #expect(Attaching.box(mac: [], here: [image(1)], attaching: [], detaching: []).isEmpty)
+        // taken off here, and the Mac still lists it: it stays gone
+        #expect(Attaching.box(mac: [held(1), held(2)], here: [], attaching: [], detaching: ["a1"]).map(\.id) == ["a2"])
+    }
+
+    @Test func aFileTakenOffTakesItsMarkerOutOfTheWords() {
+        #expect(Attaching.without("[image #1]", in: "look at [image #1] here") == "look at here")
+        #expect(Attaching.without("[image #1]", in: "[image #1] look") == "look")
+        #expect(Attaching.without("[image #1]", in: "look [image #1]") == "look")
+        #expect(Attaching.without("[image #1]", in: "[image #1]") == "")
+        #expect(Attaching.without("[image #1]", in: "[image #10] stays") == "[image #10] stays")
+        #expect(Attaching.without("[image #2]", in: "nothing named") == "nothing named")
+    }
+
+    @Test func aMarkerFromTheMacReadsWithAPlainSpace() {
+        #expect(Attaching.plain("see [image\u{00A0}#1] and [file\u{00A0}#12]") == "see [image #1] and [file #12]")
+        #expect(Attaching.plain("[image #1] stays") == "[image #1] stays")
+        #expect(Attaching.plain("10\u{00A0}km") == "10\u{00A0}km")
+        var log = ChatLog()
+        var frame = ChatFrame(chat: "c", name: "n", project: "p", state: .idle, queue: [])
+        frame.draft = "look at [image\u{00A0}#2]"
+        log.apply(frame)
+        #expect(log.draft == "look at [image #2]")
+    }
+
+    @Test func aFileTheMacHoldsGoesByItsIdAlone() throws {
+        let named = try JSONSerialization.jsonObject(with: JSONEncoder().encode(Ruri.Attachment(held: held(1)))) as? [String: Any]
+        #expect(named?["id"] as? String == "a1")
+        #expect(named?["data"] == nil)
+        #expect(named?["url"] == nil)
+        let whole = try JSONSerialization.jsonObject(with: JSONEncoder().encode(image(1))) as? [String: Any]
+        #expect(whole?["data"] as? String == "AQ==")
+    }
+
+    @Test func aFrameSaysWhatTheBoxHolds() throws {
+        let json = """
+        {"chat":"c","name":"n","project":"p","state":"idle","queue":[],
+         "draftAttachments":[{"id":"a1","kind":"image","mediaType":"image/png","name":"x.png","n":1,"url":"/uploads/a1.png"}]}
+        """
+        var log = ChatLog()
+        log.apply(try StatusReport.decoder().decode(ChatFrame.self, from: Data(json.utf8)))
+        #expect(log.draftAttachments == [held(1)])
+        // a frame that says nothing of them: the box holds none
+        log.apply(ChatFrame(chat: "c", name: "n", project: "p", state: .idle, queue: []))
+        #expect(log.draftAttachments.isEmpty)
+    }
+
     @Test func knowsAKindByItsType() {
         #expect(Attaching.kind(of: .heic) == .image)
         #expect(Attaching.kind(of: .quickTimeMovie) == .video)

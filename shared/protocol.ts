@@ -2202,9 +2202,13 @@ export interface PhoneChatFrame {
    *  moves again with the next prompt, or when it is sent on
    *  (POST /chat/queue { do: "send" }). */
   held?: true;
-  /** What is written in the chat's prompt box and not sent, on any device
-   *  (its words; attachments stay where they were added). */
+  /** What is written in the chat's prompt box and not sent, on any device:
+   *  its words. */
   draft?: string;
+  /** The files clipped to that prompt, on any device, each at its `url`
+   *  through the door: the phone's box shows them, takes one off
+   *  (POST /chat/draft { remove }) and sends them by id alone. */
+  draftAttachments?: PhoneAttachment[];
   /** The cards the chat waits at, oldest first. */
   asks?: PhoneAsk[];
   items?: PhoneChatItem[];
@@ -2984,8 +2988,10 @@ export type ServerMessage =
   /** The sidebar's arrangement, whole, whenever it changes. */
   | { type: "sidebar"; sidebar: SidebarLayout }
   /** A chat's unsent prompt changed on another device (another window, or
-   *  the phone): the composer takes it unless it is being typed in. */
-  | { type: "composer_draft"; projectId: string; text: string }
+   *  the phone): the composer takes its words unless it is being typed in,
+   *  and its files — the whole list as it stands now, each on file at its
+   *  `url` — whenever they are said. No list: the files are as they were. */
+  | { type: "composer_draft"; projectId: string; text: string; attachments?: DraftAttachment[] }
   | { type: "folder_picked"; path: string | null; target?: PickTarget }
   /** Sharing changed: turned on or off, a device paired, came or went. */
   | { type: "sharing"; sharing: SharingInfo }

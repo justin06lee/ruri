@@ -60,6 +60,17 @@ struct Composer: View {
         .onChange(of: session.log.draft, initial: true) {
             if let words = session.draftFromElsewhere(replacing: draft) { draft = words }
         }
+        // and so are its files: one clipped on here is handed to the Mac,
+        // and one clipped on or taken off elsewhere shows or goes here
+        .onChange(of: session.log.draftAttachments, initial: true) {
+            attachments.take(session.boxFiles(holding: attachments.ready))
+        }
+        .onChange(of: session.boxTurns) {
+            attachments.take(session.boxFiles(holding: attachments.ready))
+        }
+        .onAppear {
+            attachments.added = { session.attached($0) }
+        }
         .animation(.snappy(duration: 0.25), value: session.log.queue)
         .animation(.snappy(duration: 0.25), value: session.problem)
         #if DEBUG
@@ -69,7 +80,11 @@ struct Composer: View {
 
     private var box: some View {
         VStack(alignment: .leading, spacing: 6) {
-            AttachmentStrip(picking: attachments)
+            AttachmentStrip(picking: attachments, session: session) { gone in
+                session.detached(gone)
+                // words that pointed at it would point at nothing
+                draft = Attaching.without(gone.marker, in: draft)
+            }
             PromptField(
                 text: $draft, placeholder: placeholder, palette: palette, editing: $editing,
                 pasted: { providers in Task { await attachments.load(providers: providers) } },

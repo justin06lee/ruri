@@ -11,18 +11,31 @@ struct Attachment: Encodable, Equatable, Identifiable, Sendable {
     var mediaType: String
     var name: String
     var n: Int
-    /// Base64 in JSON, which is what the Mac reads.
-    var data: Data
+    /// Base64 in JSON, which is what the Mac reads. None for a file clipped
+    /// on at another device: the Mac holds it, and takes it by its id.
+    var data: Data?
+    /// Where the Mac serves it, once the Mac has said the box holds it.
+    var url = ""
 
     var marker: String { Attaching.marker(kind, n) }
 
-    /// As a bubble shows it, until the Mac has it on file.
+    /// As a bubble shows it: from the Mac once it is on file there.
     var shown: ChatAttachment {
-        ChatAttachment(id: id, kind: kind, mediaType: mediaType, name: name, n: n, url: "")
+        ChatAttachment(id: id, kind: kind, mediaType: mediaType, name: name, n: n, url: url)
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, kind, mediaType, name, n, data
+    }
+}
+
+extension Attachment {
+    /// A file the Mac's box holds, clipped on at another device.
+    init(held: ChatAttachment) {
+        self.init(
+            id: held.id, kind: held.kind, mediaType: held.mediaType, name: held.name, n: held.n, data: nil,
+            url: held.url
+        )
     }
 }
 
@@ -59,6 +72,53 @@ enum Attaching {
     /// it: the files themselves sit just above.
     static func afterMarkers(_ text: String) -> String {
         String(text.trimmingPrefix(/(?:\s*\[(?:image|video|file|region) #\d+\])+\s*/))
+    }
+
+    /// The files the prompt box shows, the same on every device: what the
+    /// Mac says the box holds — less what was just taken off here, which it
+    /// has yet to hear — and what was clipped on here that it has yet to
+    /// say it holds. A file in hand keeps its bytes; its number is the Mac's.
+    static func box(
+        mac: [ChatAttachment], here: [Attachment], attaching: Set<String>, detaching: Set<String>
+    ) -> [Attachment] {
+        let listed = Set(mac.map(\.id))
+        let held = mac.filter { !detaching.contains($0.id) }.map { theirs in
+            guard var ours = here.first(where: { $0.id == theirs.id }) else { return Attachment(held: theirs) }
+            ours.n = theirs.n
+            ours.url = theirs.url
+            return ours
+        }
+        return held + here.filter { attaching.contains($0.id) && !listed.contains($0.id) }
+    }
+
+    /// Markers as this phone writes and looks for them, with a plain space.
+    /// A window on the Mac keeps the space inside one unbreakable, so its
+    /// chip never wraps in two, and a Mac from before it said them plainly
+    /// sends its box that way.
+    static func plain(_ text: String) -> String {
+        text.replacing(/\[(image|video|file|region)\u{00A0}#(\d+)\]/) { "[\($0.1) #\($0.2)]" }
+    }
+
+    /// The words without a file's marker: the file was taken off, and words
+    /// that point at nothing would only mislead. The space the marker stood
+    /// in closes up.
+    static func without(_ marker: String, in text: String) -> String {
+        guard text.contains(marker) else { return text }
+        return text
+            .replacingOccurrences(of: " " + marker + " ", with: " ")
+            .replacingOccurrences(of: marker + " ", with: "")
+            .replacingOccurrences(of: " " + marker, with: "")
+            .replacingOccurrences(of: marker, with: "")
+    }
+
+    /// A file's bytes where Quick Look can open them: a folder of its own,
+    /// under its own name.
+    static func opened(_ data: Data, id: String, name: String) -> URL? {
+        let folder = FileManager.default.temporaryDirectory.appending(path: id, directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appending(path: (name as NSString).lastPathComponent)
+        guard (try? data.write(to: file, options: .atomic)) != nil else { return nil }
+        return file
     }
 
     static func kind(of type: UTType?) -> ChatAttachment.Kind {

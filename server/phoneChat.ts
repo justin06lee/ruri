@@ -8,14 +8,21 @@
  *                               frame on connect, then what changed
  *   POST /chat/send             { id, text, clientId, attachments?, now? } →
  *                               where it went; attachments are { id, kind,
- *                               mediaType, name, n, data } in base64; `now`
- *                               cuts in on the turn that is running
+ *                               mediaType, name, n, data } in base64 — or
+ *                               without `data`, a file already in the
+ *                               chat's prompt box (the frame's
+ *                               draftAttachments), by its id; `now` cuts
+ *                               in on the turn that is running
  *   POST /chat/queue            { id, do, itemId? } — a queued prompt sent
  *                               now ("now") or taken out ("remove"), or a
  *                               queue that is standing by sent on ("send")
  *   POST /chat/stop             { id } — the running turn stopped
- *   POST /chat/draft            { id, text } — the chat's unsent prompt,
- *                               written here; every window's box takes it
+ *   POST /chat/draft            { id, text?, add?, remove? } — the chat's
+ *                               unsent prompt, written here: its words,
+ *                               files clipped to it (`add`, as /chat/send
+ *                               takes them, with `data`) and files taken
+ *                               off (`remove`, their ids); every window's
+ *                               box takes it
  *   POST /chat/answer           { id, ask, allow } — a card allowed or
  *                               refused; { id, ask, answers } — a question
  *                               answered, one { picked, other? } each;
@@ -43,6 +50,7 @@
  * app sends one (the `send` handler), under the phone's own id for it —
  * sent twice, after a dropped line, it is answered rather than run again.
  */
+import * as fs from "node:fs";
 import type * as http from "node:http";
 import { WebSocket } from "ws";
 import { z } from "zod";
@@ -54,6 +62,7 @@ import {
   type AskQuestions,
   type Attachment,
   type AttachmentUpload,
+  type DraftAttachment,
   type PermissionRequest,
   type PhoneAnswered,
   type PhoneAsk,
@@ -65,9 +74,11 @@ import {
   type TalkAsk,
   type TranscriptEvent,
 } from "../shared/protocol.js";
+import { plainMarkers } from "../shared/markerText.js";
 import { questionError } from "../shared/questionInput.js";
 import { channelProject } from "./channel.js";
 import type { ClientConn, ServerContext } from "./context.js";
+import { freshFiles, sameFiles } from "./drafts.js";
 import { setChatAccount, setProjectAccount } from "./handlers/accounts.js";
 import { projectHandlers } from "./handlers/projects.js";
 import { promptHandlers } from "./handlers/prompts.js";
@@ -75,6 +86,7 @@ import { settingHandlers } from "./handlers/settings.js";
 import { warn } from "./log.js";
 import type { QueueEntry } from "./queue.js";
 import { readBody } from "./sharing.js";
+import { storedFilePath, storeUpload } from "./uploads.js";
 
 /** How many things said the phone is given — the screen's worth and more. */
 const ITEMS_MAX = 150;
@@ -103,16 +115,21 @@ const phoneUploads = z
       mediaType: z.string().max(200),
       name: z.string().max(1_000),
       n: z.number().int().min(1),
-      data: z.string().min(1).max(SEND_MAX),
+      // none: a file the chat's prompt box already holds, named by its id
+      data: z.string().min(1).max(SEND_MAX).optional(),
     }),
   )
   .max(ATTACHMENTS_MAX);
+
+/** A file as the phone sends it: with its bytes, or (a file added to the
+ *  prompt box on another device) by its id alone. */
+export type PhoneUpload = Omit<AttachmentUpload, "data"> & { data?: string | undefined };
 
 export interface PhoneSendBody {
   id: string;
   text: string;
   clientId: string;
-  uploads: AttachmentUpload[];
+  uploads: PhoneUpload[];
   /** Sent to cut in: the running turn stops and this goes in its place. */
   now: boolean;
 }
@@ -363,6 +380,7 @@ export function phoneFrame(ctx: ServerContext, chatId: string): PhoneChatFrame |
   const waiting = cards.some((request) => !request.asked) || (status === "permission" && cards.length === 0);
   const queue = phoneQueue(ctx.queues.entries.get(chatId) ?? []);
   const asks = phoneAsks(ctx, chatId);
+  const boxed = phoneAttachments(ctx.drafts.get(chatId)?.attachments);
   return {
     chat: chatId,
     name: session.title || project.name,
@@ -370,7 +388,9 @@ export function phoneFrame(ctx: ServerContext, chatId: string): PhoneChatFrame |
     state: waiting ? "needs-you" : status === "working" || status === "permission" ? "working" : "idle",
     queue,
     ...(queue.length && ctx.queues.held.has(chatId) ? { held: true as const } : {}),
-    ...(ctx.drafts.get(chatId)?.text.trim() ? { draft: ctx.drafts.get(chatId)!.text } : {}),
+    // markers as the phone reads them: a window saves its own unbreakable
+    ...(ctx.drafts.get(chatId)?.text.trim() ? { draft: plainMarkers(ctx.drafts.get(chatId)!.text) } : {}),
+    ...(boxed.attachments ? { draftAttachments: boxed.attachments } : {}),
     ...(asks.length ? { asks } : {}),
     items: phoneItems(ctx.archive.events(chatId), draft),
   };
@@ -687,16 +707,43 @@ export function phoneChatStream(ctx: ServerContext): PhoneChatStream {
 
 /* ── sending ───────────────────────────────────────────────────────── */
 
+/**
+ * The files of a prompt from the phone, each with its bytes: one named by
+ * its id alone is a file the chat's prompt box holds, added on another
+ * device, so its bytes are on this disk already — sent as the box has it,
+ * whatever the phone said of it. One the box no longer holds is left out.
+ */
+export function boxedUploads(ctx: ServerContext, chat: string, sent: PhoneUpload[]): AttachmentUpload[] {
+  const held = ctx.drafts.get(chat)?.attachments ?? [];
+  return sent.flatMap((upload): AttachmentUpload[] => {
+    if (upload.data) return [{ ...upload, data: upload.data }];
+    const boxed = held.find((att) => att.id === upload.id);
+    if (!boxed?.url) return [];
+    try {
+      const data = fs.readFileSync(storedFilePath(boxed.url)).toString("base64");
+      return [
+        { id: boxed.id, kind: boxed.kind, mediaType: boxed.mediaType, name: boxed.name, n: boxed.n, data },
+      ];
+    } catch (err) {
+      warn("phone", err, "a boxed file to send");
+      return [];
+    }
+  });
+}
+
 /** A prompt into a chat, the way the web app sends one; where it went. */
 export async function phoneSend(
   ctx: ServerContext,
   chat: string,
   text: string,
   clientId: string,
-  uploads: AttachmentUpload[] = [],
+  sent: PhoneUpload[] = [],
   now = false,
 ): Promise<PhoneSent> {
   let as: PhoneSent["as"] | undefined;
+  const uploads = boxedUploads(ctx, chat, sent);
+  // every file named was gone, and there were no words: nothing to send
+  if (!text.trim() && uploads.length === 0) return { as: "failed" };
   // the handler answers a window over its socket: here, a stand-in that
   // keeps the answer
   const answer = {
@@ -721,8 +768,9 @@ export async function phoneSend(
   }
   // the answer comes a microtask after the prompt is taken
   await new Promise((resolve) => setImmediate(resolve));
-  // what was written went out: the prompt box is empty everywhere now
-  if (as !== "failed") phoneDraft(ctx, chat, "");
+  // what was written went out: the prompt box is empty everywhere now,
+  // of its words and of the files that went with them
+  if (as !== "failed") phoneDraft(ctx, chat, "", { remove: sent.map((upload) => upload.id) });
   return { as: as ?? "other" };
 }
 
@@ -753,13 +801,73 @@ export function phoneQueueDo(ctx: ServerContext, body: PhoneQueueBody): boolean 
   return true;
 }
 
-/** The chat's unsent prompt, written on the phone: kept as a window's is
- *  (its attachments stand), and every window's composer takes it. */
-export function phoneDraft(ctx: ServerContext, chat: string, text: string): void {
+/** Who added a file, for the phone: it has no socket to be known by. */
+const PHONE = "phone";
+
+/**
+ * The chat's unsent prompt, written on the phone: kept as a window's is,
+ * and every window's composer takes it. Its words when the phone says
+ * them; its files one at a time — `add` clips some to it (stored like any
+ * upload), `remove` takes some off by id — so a file another device added
+ * meanwhile is never lost to a list that had not heard of it. The files
+ * the box holds afterwards come back.
+ */
+export function phoneDraft(
+  ctx: ServerContext,
+  chat: string,
+  text: string | undefined,
+  files: { add?: AttachmentUpload[]; remove?: string[] } = {},
+): DraftAttachment[] {
   const held = ctx.drafts.get(chat);
-  if ((held?.text ?? "") === text) return;
-  ctx.drafts.set(chat, text, held?.attachments);
-  ctx.clients.broadcast({ type: "composer_draft", projectId: chat, text });
+  const before = held?.attachments ?? [];
+  // the same words with the markers written the phone's way are the same
+  // words: the window's own stand, and no window is told
+  const same = text === undefined || plainMarkers(held?.text ?? "") === plainMarkers(text);
+  const words = same ? (held?.text ?? "") : text;
+  const gone = new Set(files.remove ?? []);
+  const attachments = before.filter((att) => !gone.has(att.id));
+  for (const upload of files.add ?? []) {
+    if (attachments.some((att) => att.id === upload.id)) continue;
+    // its marker's number is its own: one already taken (a picture added
+    // in a window at the same moment) and it takes the next
+    const taken = attachments.filter((att) => att.kind === upload.kind).map((att) => att.n);
+    const n = taken.includes(upload.n) ? Math.max(...taken) + 1 : upload.n;
+    const { data: _data, picture: _picture, regions: _regions, ...meta } = upload;
+    attachments.push({ ...meta, n, url: storeUpload({ ...upload, n }).url });
+    freshFiles.note(upload.id, PHONE);
+  }
+  const filed = !sameFiles(before, attachments);
+  if ((held?.text ?? "") === words && !filed) return attachments;
+  ctx.drafts.set(chat, words, filed ? attachments : held?.attachments);
+  ctx.clients.broadcast({
+    type: "composer_draft",
+    projectId: chat,
+    text: words,
+    ...(filed ? { attachments } : {}),
+  });
+  return attachments;
+}
+
+/** A /chat/draft body, checked — or undefined. */
+export function readDraftBody(
+  body: Record<string, unknown>,
+): { id: string; text?: string; add: AttachmentUpload[]; remove: string[] } | undefined {
+  const { id, text, add, remove } = body;
+  if (typeof id !== "string" || !id) return undefined;
+  if (text !== undefined && (typeof text !== "string" || text.length > PROMPT_MAX)) return undefined;
+  const added = phoneUploads.safeParse(add ?? []);
+  const removed = z
+    .array(z.string().max(100))
+    .max(ATTACHMENTS_MAX)
+    .safeParse(remove ?? []);
+  if (!added.success || !removed.success) return undefined;
+  // a file added has its bytes with it
+  const uploads = added.data.flatMap((upload): AttachmentUpload[] =>
+    upload.data ? [{ ...upload, data: upload.data }] : [],
+  );
+  if (uploads.length !== added.data.length) return undefined;
+  if (text === undefined && uploads.length === 0 && removed.data.length === 0) return undefined;
+  return { id, ...(text !== undefined ? { text } : {}), add: uploads, remove: removed.data };
 }
 
 /** The running turn stopped, as the web app's stop button stops it: the
@@ -917,18 +1025,23 @@ export async function servePhoneChat(
       res.end();
       return;
     }
-    const parsed = await readJson(req, PROMPT_MAX * 4 + 1024);
-    const chat = parsed?.["id"];
-    const text = parsed?.["text"];
-    if (typeof chat !== "string" || !chat || typeof text !== "string" || text.length > PROMPT_MAX) {
-      json(res, 400, { error: "send { id, text }" });
+    // files come with their bytes: as much room as a send has
+    const parsed = await readJson(req, SEND_MAX);
+    const body = parsed ? readDraftBody(parsed) : undefined;
+    if (!body) {
+      json(res, 400, { error: "send { id, text?, add?, remove? }" });
       return;
     }
-    if (!reachable(ctx, chat)) {
+    if (!reachable(ctx, body.id)) {
       json(res, 404, { error: "no such chat" });
       return;
     }
-    phoneDraft(ctx, chat, text);
+    const held = ctx.drafts.get(body.id)?.attachments?.length ?? 0;
+    if (held - body.remove.length + body.add.length > ATTACHMENTS_MAX) {
+      json(res, 400, { error: `a prompt takes ${ATTACHMENTS_MAX} attachments` });
+      return;
+    }
+    phoneDraft(ctx, body.id, body.text, { add: body.add, remove: body.remove });
     json(res, 200, { ok: true });
     return;
   }

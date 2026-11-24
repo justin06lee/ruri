@@ -428,6 +428,36 @@ struct MarkdownTests {
     }
 }
 
+struct DragonTests {
+    @Test func bothDrawingsAreReadWholeAndSitInTheirBox() {
+        #expect(DragonDrawing.frames.count == 2)
+        for drawing in DragonDrawing.frames {
+            let bounds = drawing.boundingRect
+            // drawn, and inside the square it is scaled from (a curve's
+            // handles may reach a little past where the neck is cut off)
+            #expect(bounds.width > 300 && bounds.height > 300)
+            #expect(bounds.minX >= -16 && bounds.minY >= -16)
+            #expect(bounds.maxX <= DragonDrawing.box + 16 && bounds.maxY <= DragonDrawing.box + 16)
+        }
+    }
+
+    @Test func readsThePathDataTheTracerWrites() {
+        // a move, a line and a curve, each from where the last ended, upside
+        // down and a tenth the size, in a 512 box
+        let path = DragonDrawing.path("M100 5120 l100 0 c0 -50 0 -100 -100 -100z")
+        #expect(path.boundingRect == CGRect(x: 10, y: 0, width: 10, height: 10))
+        // a sign with no space before it still begins a number
+        #expect(DragonDrawing.path("M0 5120 l100-100").boundingRect == CGRect(x: 0, y: 0, width: 10, height: 10))
+    }
+
+    @Test func theJawsOpenAndShutTwiceASecond() {
+        let start = Date(timeIntervalSinceReferenceDate: 1_000)
+        #expect(DragonDrawing.frame(at: start) == 0)
+        #expect(DragonDrawing.frame(at: start.addingTimeInterval(0.5)) == 1)
+        #expect(DragonDrawing.frame(at: start.addingTimeInterval(1.0)) == 0)
+    }
+}
+
 struct ChatLogTests {
     private func item(_ id: String, _ text: String = "") -> ChatItem {
         ChatItem(id: id, kind: .assistant, text: text, at: .now)
@@ -435,6 +465,70 @@ struct ChatLogTests {
 
     private func frame(items: [ChatItem]? = nil, upsert: [ChatItem]? = nil, remove: [String]? = nil) -> ChatFrame {
         ChatFrame(chat: "c", name: "ruri", project: "ruri", state: .working, queue: [], items: items, upsert: upsert, remove: remove)
+    }
+
+    private func earlier(_ frame: ChatFrame) -> ChatFrame {
+        var frame = frame
+        frame.earlier = true
+        return frame
+    }
+
+    @Test func theRestOfAConversationIsPagedInAboveWhatIsHeld() {
+        var log = ChatLog()
+        log.apply(earlier(frame(items: [item("c"), item("d")])))
+        #expect(log.more)
+        // a page of what was said before the oldest held
+        log.prepend(EarlierPage(items: [item("a"), item("b")], more: false), before: "c")
+        #expect(log.items.map(\.id) == ["a", "b", "c", "d"])
+        #expect(!log.more)
+        // (holding nothing, the newest of what came before is taken as it is)
+        var quiet = ChatLog()
+        quiet.apply(earlier(frame(items: [])))
+        quiet.prepend(EarlierPage(items: [item("y"), item("z")], more: true), before: nil)
+        #expect(quiet.items.map(\.id) == ["y", "z"])
+        #expect(quiet.more)
+        // and what is said next goes after it
+        quiet.apply(earlier(frame(upsert: [item("new")])))
+        #expect(quiet.items.map(\.id) == ["y", "z", "new"])
+        #expect(quiet.more)
+        // a page asked for before something that is no longer the oldest is not taken
+        log.prepend(EarlierPage(items: [item("x")], more: true), before: "c")
+        #expect(log.items.map(\.id) == ["a", "b", "c", "d"])
+        // the frames go on about their own: more said, one changed
+        log.apply(earlier(frame(upsert: [item("d", "changed"), item("e")])))
+        #expect(log.items.map(\.id) == ["a", "b", "c", "d", "e"])
+        #expect(log.items[3].text == "changed")
+        // the Mac still says there is more than its frames carry; this phone holds it all
+        #expect(!log.more)
+    }
+
+    @Test func whatSlidesOutOfTheMacsFramesIsKept() {
+        var log = ChatLog()
+        log.apply(frame(items: [item("a"), item("b"), item("c")]))
+        // more was said, and the frames' two oldest slid out to make room
+        log.apply(earlier(frame(upsert: [item("d"), item("e")], remove: ["a", "b"])))
+        #expect(log.items.map(\.id) == ["a", "b", "c", "d", "e"])
+        // something taken out of the conversation itself goes: a rewind's last turn
+        log.apply(earlier(frame(remove: ["e"])))
+        #expect(log.items.map(\.id) == ["a", "b", "c", "d"])
+        // a reply's draft giving way to the reply is not a slide
+        log.apply(frame(items: [item("draft:m")]))
+        log.apply(frame(upsert: [item("m")], remove: ["draft:m"]))
+        #expect(log.items.map(\.id) == ["m"])
+    }
+
+    @Test func aLineOpenedAgainJoinsWhatWasHeld() {
+        var log = ChatLog()
+        log.apply(earlier(frame(items: [item("c"), item("d")])))
+        log.prepend(EarlierPage(items: [item("a"), item("b")], more: true), before: "c")
+        // the whole list again, further on: it joins at what is held
+        log.apply(earlier(frame(items: [item("d"), item("e"), item("f")])))
+        #expect(log.items.map(\.id) == ["a", "b", "c", "d", "e", "f"])
+        #expect(log.more)
+        // a list that joins nowhere (the chat was rewound, or cleared) starts over
+        log.apply(frame(items: [item("z")]))
+        #expect(log.items.map(\.id) == ["z"])
+        #expect(!log.more)
     }
 
     @Test func readsTheCardsAChatWaitsAt() throws {

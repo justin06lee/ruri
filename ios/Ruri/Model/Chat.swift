@@ -221,9 +221,19 @@ struct ChatFrame: Codable, Sendable {
     var running: [ChatRunning]?
     /// The cards the chat waits at, oldest first.
     var asks: [ChatAsk]?
+    /// There is more of the conversation than the Mac's frames carry: said
+    /// before their oldest, or before the chat's last compaction.
+    var earlier: Bool?
     var items: [ChatItem]?
     var upsert: [ChatItem]?
     var remove: [String]?
+}
+
+/// What GET /chat/earlier answers: the things said just before one this
+/// phone holds, oldest first, and whether there are more before those.
+struct EarlierPage: Codable, Sendable {
+    var items: [ChatItem]
+    var more: Bool
 }
 
 /// Where a prompt sent went.
@@ -263,11 +273,23 @@ struct ChatLog: Equatable, Sendable {
     var running: [ChatRunning] = []
     /// The cards the chat waits at, oldest first.
     var asks: [ChatAsk] = []
+    /// The conversation as far back as this phone holds it: what the Mac's
+    /// frames carry (its newest), with whatever was said before that this
+    /// phone has asked for, or kept as it slid out of the frames.
     private(set) var items: [ChatItem] = []
+    /// There is more of it before the oldest held, to be asked for.
+    private(set) var more = false
+    /// The oldest item the Mac's frames carry. Older ones held here are
+    /// this phone's own keeping: nothing a frame says can be about them.
+    private var oldestFramed: String?
 
-    /// Take one frame: the whole list replaces what is held; otherwise what
-    /// is gone goes, what changed changes in place, and what is new goes
-    /// after the rest.
+    /// Whether anything older than the Mac's frames is held.
+    private var heldEarlier: Bool { items.first?.id != oldestFramed }
+
+    /// Take one frame: the whole list replaces what the frames carried —
+    /// what is held from before it stays, where the two still join;
+    /// otherwise what is gone goes, what changed changes in place, and
+    /// what is new goes after the rest.
     mutating func apply(_ frame: ChatFrame) {
         name = frame.name
         project = frame.project
@@ -279,11 +301,27 @@ struct ChatLog: Equatable, Sendable {
         running = frame.running ?? []
         asks = frame.asks ?? []
         if let whole = frame.items {
-            items = whole
+            // the line was opened again, or the order changed: where the
+            // new list begins at something held, what is held before it is
+            // still the conversation before it
+            if heldEarlier, let first = whole.first, let at = items.firstIndex(where: { $0.id == first.id }) {
+                items = Array(items[..<at]) + whole
+            } else {
+                items = whole
+                more = frame.earlier ?? false
+            }
+            oldestFramed = whole.first?.id
             return
         }
         if let gone = frame.remove, !gone.isEmpty {
-            let set = Set(gone)
+            var set = Set(gone)
+            // the frames carry only the newest: as more is said their
+            // oldest slide out, which is not the conversation losing them
+            while let framed = oldestFramed, set.contains(framed), !framed.hasPrefix("draft:"),
+                  let at = items.firstIndex(where: { $0.id == framed }), at + 1 < items.count {
+                set.remove(framed)
+                oldestFramed = items[at + 1].id
+            }
             items.removeAll { set.contains($0.id) }
         }
         for item in frame.upsert ?? [] {
@@ -293,6 +331,20 @@ struct ChatLog: Equatable, Sendable {
                 items.append(item)
             }
         }
+        if oldestFramed == nil || !items.contains(where: { $0.id == oldestFramed }) { oldestFramed = items.first?.id }
+        if !heldEarlier { more = frame.earlier ?? false }
+    }
+
+    /// Take a page of what was said before the oldest held — or, holding
+    /// nothing (`before` nil: a chat that has said nothing since it
+    /// compacted), the newest of what it said before.
+    mutating func prepend(_ page: EarlierPage, before: String?) {
+        // asked for before what is still the oldest: anything else has
+        // moved on under it
+        guard items.first?.id == before else { return }
+        let held = Set(items.map(\.id))
+        items = page.items.filter { !held.contains($0.id) } + items
+        more = page.more
     }
 
     /// Whether the chat has taken a prompt by this id: said, or queued.

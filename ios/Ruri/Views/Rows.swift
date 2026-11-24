@@ -176,7 +176,7 @@ struct ChatRow: View {
     }
 }
 
-/// Before a name: the spinner while it works, a dot in the accent while it
+/// Before a name: the dragon's head while it works, a dot in the accent while it
 /// waits on you, a mark where it stopped, and a faint zzz at rest.
 struct StateGlyph: View {
     var state: StatusState
@@ -185,7 +185,7 @@ struct StateGlyph: View {
     var body: some View {
         switch state {
         case .working:
-            WorkingSpinner()
+            DragonHead()
         case .needsYou:
             Circle()
                 .fill(palette.accent)

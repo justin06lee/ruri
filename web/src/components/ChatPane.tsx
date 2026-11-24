@@ -547,7 +547,7 @@ function ChatView({
   // composer measures itself — so the bottom keeps moving for a few frames.
   // This holds it there until it stops moving, and stands down the moment
   // the user scrolls.
-  useLayoutEffect(() => {
+  const settleAtBottom = useCallback(() => {
     scrollToBottom();
     let frames = 0;
     let steady = 0;
@@ -570,6 +570,32 @@ function ChatView({
     });
     return () => cancelAnimationFrame(raf);
   }, [scrollToBottom]);
+  useLayoutEffect(() => settleAtBottom(), [settleAtBottom]);
+
+  // Back from a page that took the whole pane — a script's or an agent's,
+  // the team, the library. The transcript left the page while that one was
+  // up and is a new element now, at its very top; nothing above runs again
+  // for it, since the session never changed. So it was left there, the
+  // whole conversation scrolled away, until the next thing said happened to
+  // move it. Put back where it was: at the last thing said for a view that
+  // was following it, and where the reader had got to for one read back up.
+  const away = agentsOpen || page !== "chat";
+  const wasAway = useRef(away);
+  useLayoutEffect(() => {
+    if (wasAway.current === away) return;
+    wasAway.current = away;
+    const el = scrollRef.current;
+    if (away || !el) return;
+    el.toggleAttribute("data-pinned", pinnedRef.current);
+    if (!pinnedRef.current) {
+      el.scrollTop = lastTopRef.current;
+      return;
+    }
+    // a new element starts at its top: the first scroll it reports is not
+    // somebody moving up the page
+    lastTopRef.current = 0;
+    return settleAtBottom();
+  }, [away, settleAtBottom]);
 
   // Content keeps growing after the render-time scroll (images decode,
   // markdown settles) — while pinned, any growth re-bottoms the view, so a

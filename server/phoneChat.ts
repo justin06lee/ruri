@@ -23,6 +23,11 @@
  *                               takes them, with `data`) and files taken
  *                               off (`remove`, their ids); every window's
  *                               box takes it
+ *   GET  /chat/earlier?id=<chat>&before=<item>&limit=<n>
+ *                               the things said before one the phone
+ *                               holds: the rest of the conversation, a
+ *                               page at a time, back past compactions to
+ *                               its start
  *   GET  /chat/running?id=<chat>&key=<key>
  *                               one thing the frame's `running` lists,
  *                               opened: a script's command and what it
@@ -73,6 +78,7 @@ import {
   type PhoneAttachment,
   type PhoneChatFrame,
   type PhoneChatItem,
+  type PhoneEarlier,
   type PhoneQueued,
   type PhoneRunning,
   type PhoneRunningPage,
@@ -284,6 +290,7 @@ const CHAT_PATHS = new Set([
   "/chat/queue",
   "/chat/stop",
   "/chat/draft",
+  "/chat/earlier",
   "/chat/running",
   "/chat/answer",
   "/sidebar",
@@ -320,9 +327,15 @@ function phoneAttachments(attachments: Attachment[] | undefined): { attachments?
   return stored.length ? { attachments: stored } : {};
 }
 
-/** A chat's transcript as the phone shows it: what was said, tool calls
- *  between two things said folded into one line of steps. */
+/** A chat's transcript as the phone shows it, the newest ITEMS_MAX of it:
+ *  what a frame carries. The rest is paged for (phoneEarlier). */
 export function phoneItems(events: TranscriptEvent[], draft?: { id: string; text: string }): PhoneChatItem[] {
+  return everyItem(events, draft).slice(-ITEMS_MAX);
+}
+
+/** A transcript as the phone shows it, whole: what was said, tool calls
+ *  between two things said folded into one line of steps. */
+function everyItem(events: TranscriptEvent[], draft?: { id: string; text: string }): PhoneChatItem[] {
   const items: PhoneChatItem[] = [];
   let steps: PhoneChatItem | undefined;
   const fold = () => {
@@ -370,7 +383,48 @@ export function phoneItems(events: TranscriptEvent[], draft?: { id: string; text
       pending: true,
     });
   }
-  return items.slice(-ITEMS_MAX);
+  return items;
+}
+
+/* ── the rest of the conversation, a page at a time ────────────────── */
+
+/** How many things said one page holds, and the most that may be asked for. */
+const PAGE = 80;
+const PAGE_MAX = 200;
+/** How long a chat's history is kept once read: it changes only when the
+ *  chat compacts, and a reader going back through it asks page after page. */
+const HISTORY_KEPT_MS = 10_000;
+const histories = new Map<string, { at: number; items: PhoneChatItem[] }>();
+
+/** What was said before the chat's last compaction (the archive's history,
+ *  read from disk), as the phone shows it. */
+function historyItems(ctx: ServerContext, chatId: string): PhoneChatItem[] {
+  const now = Date.now();
+  for (const [chat, kept] of histories) if (now - kept.at > HISTORY_KEPT_MS) histories.delete(chat);
+  const kept = histories.get(chatId);
+  if (kept) return kept.items;
+  const items = everyItem(ctx.archive.history(chatId));
+  histories.set(chatId, { at: now, items });
+  return items;
+}
+
+/**
+ * The things said just before `before` (the id of an item the phone
+ * holds), oldest first: the conversation back past what a frame carries
+ * and past its compactions, so the phone can be scrolled up through all of
+ * it as the window can. With no `before` (a chat that has said nothing
+ * since it compacted leaves the phone holding nothing to name) it is the
+ * newest of everything. No items, and no more, for an id the conversation
+ * does not hold — it was rewound, or cleared away.
+ */
+export function phoneEarlier(ctx: ServerContext, chatId: string, before: string, limit = PAGE): PhoneEarlier {
+  // the live part is read on its own, as a frame reads it: a run of steps
+  // is folded under the same id either way
+  const all = [...historyItems(ctx, chatId), ...everyItem(ctx.archive.events(chatId))];
+  const at = before ? all.findIndex((item) => item.id === before) : all.length;
+  if (at < 0) return { items: [], more: false };
+  const from = Math.max(0, at - Math.min(Math.max(1, Math.floor(limit)), PAGE_MAX));
+  return { items: all.slice(from, at), more: from > 0 };
 }
 
 /* ── what a chat has running beside its conversation ───────────────── */
@@ -476,6 +530,10 @@ export function phoneFrame(ctx: ServerContext, chatId: string): PhoneChatFrame |
   const asks = phoneAsks(ctx, chatId);
   const boxed = phoneAttachments(ctx.drafts.get(chatId)?.attachments);
   const running = phoneRunning(ctx, chatId);
+  const events = ctx.archive.events(chatId);
+  const items = everyItem(events, draft);
+  // (a stand-in archive, in a test, may know nothing of a history)
+  const past = (ctx.archive as Partial<Pick<ServerContext["archive"], "hasHistory">>).hasHistory?.(chatId);
   return {
     chat: chatId,
     name: session.title || project.name,
@@ -487,8 +545,9 @@ export function phoneFrame(ctx: ServerContext, chatId: string): PhoneChatFrame |
     ...(ctx.drafts.get(chatId)?.text.trim() ? { draft: plainMarkers(ctx.drafts.get(chatId)!.text) } : {}),
     ...(boxed.attachments ? { draftAttachments: boxed.attachments } : {}),
     ...(running.length ? { running } : {}),
+    ...(items.length > ITEMS_MAX || past ? { earlier: true as const } : {}),
     ...(asks.length ? { asks } : {}),
-    items: phoneItems(ctx.archive.events(chatId), draft),
+    items: items.slice(-ITEMS_MAX),
   };
 }
 
@@ -1205,6 +1264,15 @@ export async function servePhoneChat(
   const frame = phoneFrame(ctx, chat);
   if (!frame) {
     json(res, 404, { error: "no such chat" });
+    return;
+  }
+  if (url.pathname === "/chat/earlier") {
+    const limit = Number(url.searchParams.get("limit") ?? PAGE);
+    json(
+      res,
+      200,
+      phoneEarlier(ctx, chat, url.searchParams.get("before") ?? "", Number.isFinite(limit) ? limit : PAGE),
+    );
     return;
   }
   if (url.pathname === "/chat/running") {

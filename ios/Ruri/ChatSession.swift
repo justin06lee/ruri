@@ -340,6 +340,33 @@ final class ChatSession {
         }
     }
 
+    // MARK: the rest of the conversation
+
+    /// What was said before the oldest thing held is being fetched, or has
+    /// just landed above it: the screen keeps the reader's place meanwhile.
+    private(set) var pagingEarlier = false
+
+    /// Fetch the things said before the oldest held, when there are any.
+    func loadEarlier() {
+        guard !made, !pagingEarlier, log.more else { return }
+        // none held: a chat that has said nothing since it compacted
+        let oldest = log.items.first?.id
+        pagingEarlier = true
+        Task {
+            do {
+                let (client, address, port) = try await model.line(to: machine)
+                let page = try await client.earlier(before: oldest ?? "", chat: chat, at: address, port: port)
+                log.prepend(page, before: oldest)
+            } catch {
+                // out of reach, or a Mac from before this: what is held stays,
+                // and coming back to the top asks again
+            }
+            // until what landed has been laid out above the reader
+            try? await Task.sleep(for: .milliseconds(350))
+            pagingEarlier = false
+        }
+    }
+
     // MARK: what it has running
 
     /// One script or agent the chat has running, opened.

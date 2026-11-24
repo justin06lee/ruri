@@ -20,6 +20,7 @@ import {
   CARRY_ON,
   ACCOUNT_PROVIDERS,
   type AccountProvider,
+  type BackgroundWork,
   type ModelChoice,
   type Project,
   type StatusAccount,
@@ -74,6 +75,17 @@ function ruris(text: string): boolean {
 function onWhat(events: TranscriptEvent[]): string | undefined {
   const prompt = events.findLast((event) => event.kind === "user" && !ruris(event.text));
   return prompt?.kind === "user" && prompt.text.trim() ? line(prompt.text, DOING_CHARS) : undefined;
+}
+
+/** What a chat with no turn running still has going, in a line. */
+function inBackground(work: BackgroundWork): string {
+  const count = (n: number, one: string, many: string) => (n === 1 ? one : `${n} ${many}`);
+  const parts = [
+    ...(work.scripts ? [count(work.scripts, "a script", "scripts")] : []),
+    ...(work.agents ? [count(work.agents, "an agent", "agents")] : []),
+  ];
+  const said = parts.join(" and ");
+  return `${said.charAt(0).toUpperCase()}${said.slice(1)} running in the background`;
 }
 
 /** How a chat's last turn ended on an error, when it did. */
@@ -137,6 +149,8 @@ function readProject(
       });
     const card = cards.get(session.id);
     const ask = asks.get(session.id);
+    // (a stand-in context, in a test, may keep no turns)
+    const background = (ctx.turns as ServerContext["turns"] | undefined)?.work.get(session.id);
     const error = status === "error" && !ctx.retries.has(session.id) ? lastError(events) : undefined;
     let state: StatusState;
     if (card !== undefined || (status === "permission" && !handed.has(session.id))) {
@@ -149,8 +163,13 @@ function readProject(
     else if (error !== undefined) {
       state = "blocked";
       need("error", trimSummary(`Stopped on an error: ${error}`, WORDS_CHARS), ended ?? now);
-    } else state = "idle";
-    const doing = state === "working" ? onWhat(events) : undefined;
+      // no turn running, but a script it left going or an agent still at
+      // work: the chat is not at rest, as the window's sidebar has it
+    } else if (background) state = "working";
+    else state = "idle";
+    const turning = status === "working" || status === "permission";
+    const doing =
+      state !== "working" ? undefined : turning || !background ? onWhat(events) : inBackground(background);
     const chat: StatusChat = {
       name,
       role,
@@ -176,7 +195,7 @@ function readProject(
     const first = waiting.reduce((a, b) => (b.since < a.since ? b : a));
     doingNow = line(`${first.who}${first.reason === "question" ? " asks" : ""}: ${first.text}`, DOING_CHARS);
     since = Date.parse(first.since);
-  } else if (standing.atWork || standing.busySince !== undefined) {
+  } else if (standing.atWork || standing.busySince !== undefined || working.length > 0) {
     // quiet but still in its stretch: a lead handing a job on, a chat
     // carrying on after compacting — not done until the watch says so
     state = "working";

@@ -538,6 +538,33 @@ struct AttachingTests {
         #expect(whole?["data"] as? String == "AQ==")
     }
 
+    @Test func aFrameSaysWhatTheChatHasRunning() throws {
+        let json = """
+        {"chat":"c","name":"n","project":"p","state":"idle","queue":[],
+         "running":[
+          {"key":"s1","kind":"script","title":"Resize the photos","doing":"[12/340] a.png",
+           "since":"2026-11-24T10:00:00.000Z","printed":"2026-11-24T10:03:00.000Z"},
+          {"key":"a1","kind":"helper","title":"Explore","since":"2026-11-24T10:01:00.000Z"}]}
+        """
+        var log = ChatLog()
+        log.apply(try StatusReport.decoder().decode(ChatFrame.self, from: Data(json.utf8)))
+        #expect(log.running.map(\.key) == ["s1", "a1"])
+        #expect(log.running[0].kind == .script)
+        // a kind from a newer Mac reads as an agent
+        #expect(log.running[1].kind == .agent)
+        let script = log.running[0]
+        let printed = try #require(script.printed)
+        // printing, then quiet for as long as it has been
+        #expect(script.standing(now: printed.addingTimeInterval(4)) == "printing")
+        #expect(script.standing(now: printed.addingTimeInterval(125)) == "quiet 2m 05s")
+        // an agent by how long it has been going
+        #expect(log.running[1].standing(now: log.running[1].since.addingTimeInterval(42)) == "42s")
+        #expect(ChatRunning.span(2 * 3_600 + 14 * 60 + 3) == "2h 14m")
+        // a frame that says nothing of them: nothing is running
+        log.apply(ChatFrame(chat: "c", name: "n", project: "p", state: .idle, queue: []))
+        #expect(log.running.isEmpty)
+    }
+
     @Test func aFrameSaysWhatTheBoxHolds() throws {
         let json = """
         {"chat":"c","name":"n","project":"p","state":"idle","queue":[],

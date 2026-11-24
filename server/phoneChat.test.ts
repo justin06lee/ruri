@@ -11,6 +11,7 @@ import {
   type Project,
   type ProjectStatus,
   type ServerMessage,
+  type SubagentState,
   type TranscriptEvent,
 } from "../shared/protocol.js";
 import { moveInLayout, setFolder, type SidebarLayout } from "../shared/sidebar.js";
@@ -24,6 +25,8 @@ import {
   phoneItems,
   phoneQueue,
   phoneQueueDo,
+  phoneRunning,
+  phoneRunningPage,
   phoneAccount,
   phoneModel,
   phoneSidebar,
@@ -754,6 +757,114 @@ describe("a prompt box the same on every device", () => {
       { ...png("s1"), data: "aGVsbG8=" },
       { ...png("own", 2), data: "aGk=" },
     ]);
+  });
+});
+
+describe("what a chat has running, on the phone", () => {
+  const card = (key: string, extra: Partial<SubagentState> = {}): SubagentState => ({
+    key,
+    description: `job ${key}`,
+    status: "running",
+    startedAt: at,
+    ...extra,
+  });
+  const tool = (agent: SubagentState): TranscriptEvent =>
+    ({ kind: "tool", id: `t-${agent.key}`, ts: agent.startedAt, name: "Bash", agent }) as TranscriptEvent;
+
+  function world(
+    cards: SubagentState[],
+    live: { agents: number; scripts: number },
+    mine: SubagentState[] = [],
+  ) {
+    const logs: Record<string, TranscriptEvent[]> = {
+      a1: [{ kind: "assistant", id: "r1", ts: at, text: "Looked at the beds." } as TranscriptEvent],
+    };
+    return {
+      manager: { backgroundWork: () => live },
+      archive: { events: () => cards.map(tool) },
+      crew: { list: () => mine },
+      secrets: { redact: (text: string) => text.replaceAll("hunter2", "•••") },
+      agentLogs: { read: (_chat: string, key: string) => logs[key] ?? [] },
+    } as unknown as ServerContext;
+  }
+
+  test("each script and agent still going, with what it is for and its newest line", () => {
+    const ctx = world(
+      [
+        card("s1", {
+          script: true,
+          description: "Resize the photos",
+          activity: "[12/340] resizing a.png with hunter2",
+          printedAt: at + 5_000,
+        }),
+        card("a1", { description: "Explore the beds", activity: "Read BEDS.md", startedAt: at + 1_000 }),
+        card("done", { script: true, status: "done" }),
+      ],
+      { agents: 1, scripts: 1 },
+    );
+    expect(phoneRunning(ctx, "c")).toEqual([
+      {
+        key: "s1",
+        kind: "script",
+        title: "Resize the photos",
+        // a secret a script printed is not shown
+        doing: "[12/340] resizing a.png with •••",
+        since: new Date(at).toISOString(),
+        printed: new Date(at + 5_000).toISOString(),
+      },
+      {
+        key: "a1",
+        kind: "agent",
+        title: "Explore the beds",
+        doing: "Read BEDS.md",
+        since: new Date(at + 1_000).toISOString(),
+      },
+    ]);
+  });
+
+  test("a card a process that is gone left running is not listed", () => {
+    // two cards say running; the session has one script alive: the newest
+    const cards = [
+      card("old", { script: true, startedAt: at - 60_000 }),
+      card("new", { script: true }),
+      card("ghost"),
+    ];
+    expect(phoneRunning(world(cards, { agents: 0, scripts: 1 }), "c").map((r) => r.key)).toEqual(["new"]);
+    expect(phoneRunning(world(cards, { agents: 0, scripts: 0 }), "c")).toEqual([]);
+  });
+
+  test("an agent the user started from the chat's agents page is listed too", () => {
+    const ctx = world([], { agents: 0, scripts: 0 }, [
+      card("m1", { mine: true, description: "Tidy the notes" }),
+    ]);
+    expect(phoneRunning(ctx, "c").map((r) => [r.key, r.kind, r.title])).toEqual([
+      ["m1", "agent", "Tidy the notes"],
+    ]);
+  });
+
+  test("a script opened: its command, and what it printed", () => {
+    const ctx = world([card("s1", { script: true, prompt: "make build" })], { agents: 0, scripts: 1 });
+    const page = phoneRunningPage(ctx, "c", "s1")!;
+    expect(page.running).toBe(true);
+    expect(page.items.map((item) => [item.kind, item.text])).toEqual([
+      ["user", "```sh\nmake build\n```"],
+      ["assistant", "*nothing printed yet*"],
+    ]);
+  });
+
+  test("an agent opened: its own side of the conversation; a key that is no card: nothing", () => {
+    const ctx = world([card("a1")], { agents: 1, scripts: 0 });
+    expect(phoneRunningPage(ctx, "c", "a1")).toEqual({
+      running: true,
+      items: [{ id: "r1", kind: "assistant", text: "Looked at the beds.", at: new Date(at).toISOString() }],
+    });
+    expect(phoneRunningPage(ctx, "c", "nope")).toBeUndefined();
+    // one that has ended still opens, and says it has
+    const ended = world([card("s9", { script: true, status: "done", prompt: "true" })], {
+      agents: 0,
+      scripts: 0,
+    });
+    expect(phoneRunningPage(ended, "c", "s9")?.running).toBe(false);
   });
 });
 

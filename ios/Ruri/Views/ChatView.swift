@@ -45,7 +45,10 @@ struct ChatView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                ChatTitle(name: name, state: session?.log.state ?? .idle, line: session?.line ?? .connecting)
+                ChatTitle(
+                    name: name, state: session?.log.state ?? .idle, line: session?.line ?? .connecting,
+                    background: session?.log.running.count ?? 0
+                )
             }
             // this chat's account, one tap away from its conversation
             if let project = model.report?.project(holding: route.id) {
@@ -77,6 +80,8 @@ private struct ChatTitle: View {
     var name: String
     var state: ChatState
     var line: ChatSession.Line
+    /// How many scripts and agents it has running beside the conversation.
+    var background = 0
     @Environment(\.palette) private var palette
 
     private var words: String? {
@@ -88,7 +93,8 @@ private struct ChatTitle: View {
         switch state {
         case .working: return "Working…"
         case .needsYou: return "Waiting on you"
-        case .idle: return nil
+        // no turn running, but not at rest either: something it started is
+        case .idle: return background > 0 ? "Running in the background" : nil
         }
     }
 

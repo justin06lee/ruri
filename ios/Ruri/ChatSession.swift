@@ -340,6 +340,14 @@ final class ChatSession {
         }
     }
 
+    // MARK: what it has running
+
+    /// One script or agent the chat has running, opened.
+    func page(of running: ChatRunning) async throws -> RunningPage {
+        let (client, address, port) = try await model.line(to: machine)
+        return try await client.running(running.key, chat: chat, at: address, port: port)
+    }
+
     // MARK: the queue, and stopping
 
     /// A queued prompt held down: it goes now, cutting in on a running turn.

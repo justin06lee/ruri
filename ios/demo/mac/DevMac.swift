@@ -132,7 +132,7 @@ enum DevMac {
 
         var body: some View {
             switch DevMac.screen {
-            case "chat", "chat-live", "chat-late", "chat-ask", "chat-question":
+            case "chat", "chat-live", "chat-late", "chat-ask", "chat-question", "chat-running":
                 NavigationStack { MadeChat(live: DevMac.screen == "chat-live", late: DevMac.screen == "chat-late") }
             case "project": NavigationStack { ProjectView(name: "orchard") }
             case "pair": PairView()
@@ -210,6 +210,28 @@ enum DevMac {
                     first.asks = asks
                     first.queue = []
                     first.state = .needsYou
+                }
+                // `chat-running`: the turn has ended, and a script it left
+                // going and an agent are still at it
+                if DevMac.screen == "chat-running" {
+                    first.queue = []
+                    first.state = .idle
+                    first.running = [
+                        ChatRunning(
+                            key: "s1", kind: .script, title: "Resize the lamp's photos",
+                            doing: "[212/340] resizing photos/lens-0212.png", since: .now.addingTimeInterval(-380),
+                            printed: .now.addingTimeInterval(-3)
+                        ),
+                        ChatRunning(
+                            key: "s2", kind: .script, title: "Run the migration",
+                            doing: "still indexing… 95s", since: .now.addingTimeInterval(-200),
+                            printed: .now.addingTimeInterval(-95)
+                        ),
+                        ChatRunning(
+                            key: "a1", kind: .agent, title: "Check the keeper's log for last night",
+                            doing: "Read: LAMP.md", since: .now.addingTimeInterval(-64)
+                        ),
+                    ]
                 }
                 let made = ChatSession(sample: first, model: model)
                 session = made

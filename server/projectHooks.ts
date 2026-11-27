@@ -44,6 +44,7 @@ import { writeJsonAtomic } from "./atomic.js";
 import { configPath } from "./configDir.js";
 import type { ServerContext } from "./context.js";
 import { errorCode, errorMessage, isMissing, warn } from "./log.js";
+import { fromMidna, written } from "./midnaPrompt.js";
 import { sessionsMode } from "./sessionsMode.js";
 import { seatName } from "./talk.js";
 
@@ -939,12 +940,6 @@ function spentSince(ctx: ServerContext, project: Project, busySince: number): nu
   return cents(sum);
 }
 
-/** A prompt someone wrote, not one of ruri's own: those open with a mark
- *  (↩ back to work, ↪ passing an answer on, ↻ carrying on) or are `carried`. */
-function written(event: TranscriptEvent): event is Extract<TranscriptEvent, { kind: "user" }> {
-  return event.kind === "user" && !event.from?.carried && !/^[↩↪↻]/.test(event.text);
-}
-
 /** Who wrote the project's most recent prompt. A prompt's event goes by the
  *  id its sender gave it (dispatch.ts userEventId), which is how midna's are
  *  told from the user's. */
@@ -960,7 +955,7 @@ export function lastPromptOf(ctx: ServerContext, project: Project): ProjectEvent
   if (!latest) return undefined;
   const { event, chatId } = latest;
   if (event.from) return { author: "agent", chatId, agent: seatName(event.from.project, event.from.title) };
-  return { author: event.id.startsWith("midna-") ? "midna" : "user", chatId, clientId: event.id };
+  return { author: fromMidna(event.id) ? "midna" : "user", chatId, clientId: event.id };
 }
 
 /**

@@ -61,6 +61,7 @@ import {
   type TalkHost,
 } from "../talk.js";
 import { warn } from "../log.js";
+import { MIDNA_PROJECT_NOTE, midnaMixup, midnaPromptOf, namedMidna } from "../midnaPrompt.js";
 import { foldName } from "../finder.js";
 import { expandPath } from "../projects.js";
 import { handOff, heldReport, taskSettled, tasksOf } from "../workers.js";
@@ -250,10 +251,13 @@ export function listSeats(ctx: ServerContext, channelId: string): string {
   if (sessionsMode(ctx)) {
     // a project is one chat: the others are the chats on the user's sidebar
     const lines = ["Other projects' chats you may message — handle, project, model, what it is doing right now:"];
+    // to a chat midna prompted, the project that shares its name says it isn't the assistant
+    const midnas =
+      open.some((seat) => namedMidna(seat.project)) && midnaPromptOf(ctx, channelId) !== undefined;
     for (const seat of open) {
       const model = channelProject(ctx, seat.session.id)?.model || ctx.store.defaultModel();
       lines.push(
-        `  ${ctx.talk.handleOf(seat.session.id)}  ${seat.project.name} — ${seat.project.path} · ${model} — ${doing(ctx, seat.session.id)}`,
+        `  ${ctx.talk.handleOf(seat.session.id)}  ${seat.project.name}${midnas && namedMidna(seat.project) ? MIDNA_PROJECT_NOTE : ""} — ${seat.project.path} · ${model} — ${doing(ctx, seat.session.id)}`,
       );
     }
     lines.push(
@@ -269,7 +273,12 @@ export function listSeats(ctx: ServerContext, channelId: string): string {
     const lead = leadOf(project)?.id;
     const here = open.filter((seat) => seat.project.id === project.id);
     if (here.length === 0 && !mine) continue;
-    lines.push("", `${project.name}${mine ? " (your project, your team)" : ""} — ${project.path}`);
+    lines.push(
+      "",
+      `${project.name}${mine ? " (your project, your team)" : ""}${
+        !mine && namedMidna(project) && midnaPromptOf(ctx, channelId) !== undefined ? MIDNA_PROJECT_NOTE : ""
+      } — ${project.path}`,
+    );
     for (const seat of here) {
       const model = channelProject(ctx, seat.session.id)?.model || ctx.store.defaultModel();
       if (seat.door) {
@@ -555,6 +564,12 @@ export async function sendLetter(
   if (!text) return { text: "The message is empty: say something." };
   const found = findSeat(ctx, args.to, channelId);
   if (typeof found === "string") return { text: found };
+  // a chat midna prompted, writing to the project that shares its name:
+  // told once that the assistant is answered by ending the turn
+  if (found.project.id !== me.project.id) {
+    const mixup = midnaMixup(ctx, channelId, found.project);
+    if (mixup) return { text: mixup };
+  }
   // another project's door is its liaison: the one it has, for now — made
   // only once the message may go
   const door = found.door === true;
@@ -775,6 +790,12 @@ export async function askProject(
       return { text: `There is no folder at ${dir}.` };
   }
   const where = open ? open.name : `${path.basename(dir)} (${dir})`;
+  // the project named midna is not midna the assistant (sendLetter says so
+  // too; said here before a card or a folder is opened for it)
+  if (open) {
+    const mixup = midnaMixup(ctx, channelId, open);
+    if (mixup) return { text: mixup };
+  }
   if (
     !isTrusted(ctx, channelId) &&
     !mayMessage(

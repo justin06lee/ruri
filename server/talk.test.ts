@@ -1161,3 +1161,76 @@ describe("a teammate's report to its lead", () => {
   });
 });
 
+
+/* ── midna the assistant is not the project called midna ──────────── */
+
+describe("a chat midna prompted, and the project that shares midna's name", () => {
+  /** caveira's chat on a prompt of `by`, beside the midna project's chat. */
+  const beside = (by: "midna" | "user") =>
+    world(
+      {},
+      {
+        "cav-chat": [
+          { kind: "user", id: by === "midna" ? "midna-1" : "u-1", text: "(midna, for Justin) add the catalog", ts: 1 },
+        ],
+      },
+      [
+        { id: "p", name: "caveira", path: "/tmp/caveira", sessions: [{ id: "cav-chat", title: "Lead", lead: true }] },
+        { id: "m", name: "midna", path: "/tmp/midna", sessions: [{ id: "midna-chat", title: "Lead", lead: true }] },
+        { id: "q", name: "api", path: "/tmp/api", sessions: [{ id: "api-chat", title: "Lead", lead: true }] },
+      ],
+    );
+
+  test("an answer meant for the assistant is not put in the project's chat: it is told how midna is answered", async () => {
+    const { ctx } = beside("midna");
+    const sent = await sendLetter(ctx, "cav-chat", { to: "midna", message: "which key do I use?" });
+    expect(sent.text).toContain("Not sent");
+    expect(sent.text).toContain("end your turn");
+    expect(ctx.queues.entries.get("midna-chat")).toBeUndefined();
+    expect(ctx.talk.letters()).toHaveLength(0);
+  });
+
+  test("by its handle or through ask_project it is the same project, and is told the same", async () => {
+    const byHandle = beside("midna");
+    const one = await sendLetter(byHandle.ctx, "cav-chat", {
+      to: byHandle.ctx.talk.handleOf("midna-chat"),
+      message: "which key?",
+    });
+    expect(one.text).toContain("Not sent");
+    const byProject = beside("midna");
+    const two = await askProject(byProject.ctx, "cav-chat", { project: "midna", message: "which key?" });
+    expect(two.text).toContain("Not sent");
+    expect(byProject.ctx.queues.entries.get("midna-chat")).toBeUndefined();
+  });
+
+  test("sent again in the same turn it goes: a question about midna's code is that chat's", async () => {
+    const { ctx } = beside("midna");
+    await sendLetter(ctx, "cav-chat", { to: "midna", message: "how do you sign builds?", reply: "none" });
+    const again = await sendLetter(ctx, "cav-chat", {
+      to: "midna",
+      message: "how do you sign builds?",
+      reply: "none",
+    });
+    expect(again.text).toContain("Sent to midna");
+    expect(ctx.queues.entries.get("midna-chat")).toHaveLength(1);
+  });
+
+  test("any other project is written to as ever, and so is midna's from a chat the user prompted", async () => {
+    const prompted = beside("midna");
+    const other = await sendLetter(prompted.ctx, "cav-chat", { to: "api", message: "what port?", reply: "none" });
+    expect(other.text).toContain("Sent to api");
+    const users = beside("user");
+    const sent = await sendLetter(users.ctx, "cav-chat", { to: "midna", message: "how do you sign?", reply: "none" });
+    expect(sent.text).toContain("Sent to midna");
+    expect(users.ctx.queues.entries.get("midna-chat")).toHaveLength(1);
+  });
+
+  test("the list says which midna that is, to a chat midna prompted and to no other", () => {
+    const prompted = beside("midna");
+    const listed = listSeats(prompted.ctx, "cav-chat");
+    expect(listed).toContain("midna — NOT midna the assistant");
+    expect(listed).toContain(`${prompted.ctx.talk.handleOf("api-chat")}  api — /tmp/api`);
+    const users = beside("user");
+    expect(listSeats(users.ctx, "cav-chat")).not.toContain("NOT midna the assistant");
+  });
+});

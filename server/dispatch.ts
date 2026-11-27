@@ -23,6 +23,7 @@ import { pushComponents } from "./handlers/components.js";
 import { briefContext, catchUp, checkResumable } from "./handoff.js";
 import { errorMessage, warn } from "./log.js";
 import { HOME_ID } from "./manager.js";
+import { midnaNote } from "./midnaPrompt.js";
 import { backfillNotes } from "./notes.js";
 import type { QueueEntry } from "./queue.js";
 import { RETRY_NUDGE, RETRY_WAITS_MS } from "./retry.js";
@@ -148,7 +149,8 @@ export function dispatch(
   ctx.archive.noteSent(channelId, harness, userEvent.id);
   ctx.manager.send(
     project,
-    brief + reports + said + partLine(part) + named,
+    // midna's prompt says whose it is and how it is answered (server/midnaPrompt.ts)
+    brief + reports + said + partLine(part) + midnaNote(ctx, channelId, userEvent.id, from) + named,
     processed.images,
     undefined,
     true,

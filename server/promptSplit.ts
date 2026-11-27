@@ -20,6 +20,7 @@ import { knownCommands, splitCommands } from "./commands.js";
 import type { ServerContext } from "./context.js";
 import { drainQueue } from "./dispatch.js";
 import { warn } from "./log.js";
+import { fromMidna } from "./midnaPrompt.js";
 import type { QueueEntry } from "./queue.js";
 import { accountFor } from "./accounts.js";
 import { onAccount, smallModelEnabled, taskCuts, type TaskCuts } from "./smallmodel.js";
@@ -43,7 +44,7 @@ export function wantsSplit(
   text: string,
   clientId: string | undefined,
 ): boolean {
-  if (text.length < SPLIT_LONGER_THAN || channelId === HOME_ID || clientId?.startsWith("midna-")) return false;
+  if (text.length < SPLIT_LONGER_THAN || channelId === HOME_ID || fromMidna(clientId)) return false;
   if (ctx.prefs.all()[SPLIT_PREF] === "off" || !smallModelEnabled()) return false;
   return splitCommands(text, knownCommands(ownerProject(ctx, channelId)?.path)).commands.length === 0;
 }
